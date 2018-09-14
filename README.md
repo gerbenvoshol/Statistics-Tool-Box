@@ -1,6 +1,6 @@
 # Statistics-Tool-Box
 
-This is a single header file with a bunch of useful statistical functions
+This is a single header file inspired by stb.h by Sean Barrett with a bunch of useful statistical functions
 
  ============================================================================
  
