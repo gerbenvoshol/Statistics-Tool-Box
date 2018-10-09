@@ -18,12 +18,12 @@
  ============================================================================
 
  Version History
- 		1.06  stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, etc., stb_multi_linear_regression
+		1.06  stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, etc., stb_multi_linear_regression
  		      stb_multi_logistic_regression 
-        1.05  stb_ksample_anderson_darling, stb_2sample_anderson_darling, stb_expfit (Exponential fitting), 
-              stb_polyfit (Polynomial fitting), stb_powfit (Power curve fitting), stb_trap, stb_trapezoidal 
-              (returns the integral (area under the cruve) of a given function and interval) and 
-              stb_lagrange (polynomial interpolation), stb_sum (Neumaier summation algorithm)
+		1.05  stb_ksample_anderson_darling, stb_2sample_anderson_darling, stb_expfit (Exponential fitting), 
+		      stb_polyfit (Polynomial fitting), stb_powfit (Power curve fitting), stb_trap, stb_trapezoidal 
+		      (returns the integral (area under the cruve) of a given function and interval) and 
+		      stb_lagrange (polynomial interpolation), stb_sum (Neumaier summation algorithm)
  		1.04  stb_kruskal_wallis (Unfinished, needs a better way to handle Dunn's post-hoc test), stb_combinations, 
  		      stb_allocmat (simple allocation of 2d array, but might not work on all systems?!), stb_fgetln, stb_fgetlns
 		1.03  stb_pcg32 (PCG-XSH-RR) and stb_xoshiro512 (xoshiro512**) Pseudo Random Number Generators
@@ -202,7 +202,7 @@ STB_EXTERN double stb_factorial(int n);
 /* Compute (numerical stable) sum of the data using the Neumaier summation algorithm */
 STB_EXTERN double stb_sum(double *data, int n);
 
-/* Calculate the liniear regression
+/* Calculate the linear regression
  * y = ax + b
  *
  * x,y  = arrays of data
@@ -448,7 +448,7 @@ STB_EXTERN STB_MAT *stb_matrix_from_file(char *filename);
  * 
  * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
  */
-STB_EXTERN void mlinear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue);
+STB_EXTERN void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue);
 
 /* Perform a simple logistic regression and return a vector containing the Beta values, the Z-test values 
  * , the corresponding P-values and return the log-likelihood. The formula determined using the newton method is:
@@ -456,7 +456,7 @@ STB_EXTERN void mlinear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double
  *
  * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
  */
-STB_EXTERN double mlogistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
+STB_EXTERN double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
 #ifdef STB_STATS_DEFINE
 
@@ -2936,7 +2936,7 @@ STB_MAT *stb_matrix_from_file(char *filename)
  * 
  * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
  */
-void mlinear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue)
+void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue)
 {
 	/* Make a matrix containing 1s that we can add to A to make the design matrix X */
 	STB_MAT *temp = NULL;
@@ -3053,7 +3053,7 @@ void mlinear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, 
  *
  * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
  */
-double mlogistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue)
+double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue)
 {
 	STB_MAT *Pi = NULL;
 	STB_MAT *V = NULL;
