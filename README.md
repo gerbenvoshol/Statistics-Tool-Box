@@ -18,6 +18,7 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, etc., stb_multi_linear_regression and stb_multi_logistic_regression 
 * stb_ksample_anderson_darling, stb_2sample_anderson_darling, (one sample) stb_anderson_darling
 * stb_expfit (Exponential fitting), stb_polyfit (Polynomial fitting), stb_powfit (Power curve fitting), stb_linfit (Liniear fitting)
 * stb_trap, stb_trapezoidal (returns the integral (area under the cruve) of a given function and interval)
