@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.05 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.06 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,8 @@
  ============================================================================
 
  Version History
+ 		1.06  stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, etc., stb_multi_linear_regression
+ 		      stb_multi_logistic_regression 
         1.05  stb_ksample_anderson_darling, stb_2sample_anderson_darling, stb_expfit (Exponential fitting), 
               stb_polyfit (Polynomial fitting), stb_powfit (Power curve fitting), stb_trap, stb_trapezoidal 
               (returns the integral (area under the cruve) of a given function and interval) and 
@@ -366,6 +368,95 @@ STB_EXTERN char **stb_fgetlns(char *filename, size_t *number_of_lines);
 
 /* Dynamic allocation version of fgets(), capable of reading unlimited line lengths. */
 STB_EXTERN char *stb_fgetln(char **buf, int *n, FILE *fp);
+
+/* Simple Matrix Function */
+
+/* Matrix structure */
+typedef struct {
+	double **data;
+	int rows;
+	int columns;
+} STB_MAT;
+
+/* Print a matrix */
+STB_EXTERN void stb_matrix_print(STB_MAT *matrix);
+
+/* Free a matrix */
+STB_EXTERN void stb_free_matrix(STB_MAT *matrix);
+
+/* Return a new matrix of rowx column size initialized with 0 */
+STB_EXTERN STB_MAT *stb_new_matrix(int rows, int columns);
+
+/* Retrn an identity matrix of rowxcolumn size */
+STB_EXTERN STB_MAT *stb_identity_matrix(int rows, int columns);
+
+/* Return a copy of a matrix */
+STB_EXTERN STB_MAT *stb_dup_matrix(STB_MAT *matrix);
+
+/* Fill a matrix with a value */
+STB_EXTERN void stb_fill_matrix(STB_MAT *matrix, double value);
+
+/* Join two matrixes together and store the result in D. Example:
+ * A |   B   =    D 
+ *
+ * 1 | 1 0 0   1 1 0 0
+ * 1 | 0 1 0 = 1 0 1 0
+ * 1 | 0 0 1   1 0 0 1
+ */
+STB_EXTERN void stb_join_matrix(STB_MAT *A, STB_MAT *B, STB_MAT **D);
+
+/* Multiply two matrixes A and B, store the result in D */
+STB_EXTERN void stb_matrix_multiply(STB_MAT *A, STB_MAT *B, STB_MAT **D);
+
+/* Substract two equal sized matrixes A and B, store the result in D */
+STB_EXTERN void stb_matrix_subs(STB_MAT *A, STB_MAT *B, STB_MAT **D);
+
+/* Add two equal sized matrixes together A and B, store the result in D */
+STB_EXTERN void stb_matrix_add(STB_MAT *A, STB_MAT *B, STB_MAT **D);
+
+/* Transopse matrix A  and store it in Atransposed */
+STB_EXTERN void stb_transpose_matrix(STB_MAT *A, STB_MAT **Atransposed);
+
+/* Invert matrix A and store it in Ainverted*/
+STB_EXTERN void stb_invert_matrix(STB_MAT *A, STB_MAT **Ainverted);
+
+/* Multiply an entire matrix by a single value */
+STB_EXTERN void stb_matrix_multiply_by_value(STB_MAT *A, double value);
+
+/* Divide an entire matrix by a single value */
+STB_EXTERN void stb_matrix_divide_by_value(STB_MAT *A, double value);
+
+/* Returns the sum of a matrix */
+double stb_matrix_sum(STB_MAT *A);
+
+/* Returns a struct STB_MAT from a double matrix and the number of rows and columns */
+STB_EXTERN STB_MAT *stb_matrix_from_double(double **data, int rows, int columns);
+
+/* Reads a matrix from a tab seperated file.
+ * The first line has two values the number of rows and the number of columns in the file.
+ * The rest of the data are the actual values. Example:
+ * 3	1 (3 rows and 1 column)
+ * 62	
+ * 66	
+ * 61	
+ */
+STB_EXTERN STB_MAT *stb_matrix_from_file(char *filename);
+
+/* Perform a simple linear regression and return a vector containing the Beta values, the T-test values 
+ * and the corresponding P-values. The formula determined using the least squared method is:
+ * Y = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
+ * 
+ * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
+ */
+STB_EXTERN void mlinear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue);
+
+/* Perform a simple logistic regression and return a vector containing the Beta values, the Z-test values 
+ * , the corresponding P-values and return the log-likelihood. The formula determined using the newton method is:
+ * ln(1 / 1 - Y) = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
+ *
+ * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
+ */
+STB_EXTERN double mlogistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
 #ifdef STB_STATS_DEFINE
 
@@ -2511,6 +2602,668 @@ char *stb_fgetln(char **buf, int *n, FILE *fp)
 
 		location = *n - 1;
 	}
+}
+
+void stb_matrix_print(STB_MAT *matrix)
+{
+	for (int i = 0; i < matrix->rows; i++) {
+		for (int n = 0; n < matrix->columns; n++) {
+			printf("%E ", matrix->data[i][n]);
+		}
+		printf("\n");
+	}
+}
+
+void stb_free_matrix(STB_MAT *matrix)
+{
+	free(matrix->data);
+	free(matrix);
+}
+
+STB_MAT *stb_new_matrix(int rows, int columns)
+{
+	STB_MAT *matrix;
+	matrix = (STB_MAT *) calloc(1, sizeof(STB_MAT));
+	matrix->rows = rows;
+	matrix->columns = columns;
+	matrix->data = (double **) stb_allocmat(rows, columns, sizeof(double));
+
+	return matrix;
+}
+
+STB_MAT *stb_identity_matrix(int rows, int columns)
+{
+	if (rows != columns) {
+		printf("An identity matrix is square! So the rows should be equal to the columns\n");
+		exit(1);
+	}
+
+	STB_MAT *matrix;
+	matrix = (STB_MAT *) calloc(1, sizeof(STB_MAT));
+	matrix->rows = rows;
+	matrix->columns = columns;
+	matrix->data = (double **) stb_allocmat(rows, columns, sizeof(double));
+
+	for (int i = 0; i < matrix->columns; i++) { 
+		matrix->data[i][i] = 1.0;
+	}
+
+	return matrix;
+}
+
+STB_MAT *stb_dup_matrix(STB_MAT *matrix)
+{
+	STB_MAT *dup;
+	dup = (STB_MAT *) calloc(1, sizeof(STB_MAT));
+	dup->rows = matrix->rows;
+	dup->columns = matrix->columns;
+	dup->data = (double **) stb_allocmat(matrix->rows, matrix->columns, sizeof(double));
+
+	for (int i = 0; i < matrix->rows; i++) {
+		for (int n = 0; n < matrix->columns; n++) {
+			dup->data[i][n] = matrix->data[i][n];
+		}
+	}
+
+	return dup;
+}
+
+void stb_fill_matrix(STB_MAT *matrix, double value)
+{
+	for (int i = 0; i < matrix->rows; i++) {
+		for (int n = 0; n < matrix->columns; n++) {
+			matrix->data[i][n] = value;
+		}
+	}
+}
+
+/* A |   B   =    C 
+ *
+ * 1 | 1 0 0   1 1 0 0
+ * 1 | 0 1 0 = 1 0 1 0
+ * 1 | 0 0 1   1 0 0 1
+ */
+void stb_join_matrix(STB_MAT *A, STB_MAT *B, STB_MAT **D)
+{
+	if (A->rows != B->rows) {
+		printf("Unable to join to matrixes with unequal row sizes!\n");
+		exit(1);
+	}
+
+	STB_MAT *C = stb_new_matrix(A->rows, A->columns + B->columns);
+
+	/* Copy in A */
+	for (int i = 0; i < A->rows; i++) { 
+		for (int n = 0; n < A->columns; n++) { 
+			C->data[i][n] = A->data[i][n];
+		}
+	}
+
+	/* Copy in B */
+	for (int i = 0; i < B->rows; i++) { 
+		for (int n = 0; n < B->columns; n++) { 
+			C->data[i][A->columns + n] = B->data[i][n];
+		}
+	}
+
+	*D = C;
+}
+
+/* D = A * B */
+void stb_matrix_multiply(STB_MAT *A, STB_MAT *B, STB_MAT **D)
+{
+	if (A->columns != B->rows) {
+		printf("Cannot multiply matrix: rows of A need to be equal to the columns of B!\n");
+		exit(1);
+	}
+
+	STB_MAT *C = stb_new_matrix(A->rows, B->columns);
+
+	for (int i = 0; i < A->rows; i++) {
+		for (int n = 0; n < A->columns; n++) {
+			for (int j = 0; j < B->columns; j++) {
+				C->data[i][j] += A->data[i][n] * B->data[n][j];
+			}
+		}
+	}
+
+	*D = C;
+}
+
+/* D = A - B */
+void stb_matrix_subs(STB_MAT *A, STB_MAT *B, STB_MAT **D)
+{
+	if (A->columns != B->columns) {
+		printf("Cannot substract matrix: columns of A need to be equal to the columns of B!\n");
+		exit(1);
+	} else 	if (A->rows != B->rows) {
+		printf("Cannot substract matrix: rows of A need to be equal to the rows of B!\n");
+		exit(1);
+	}
+
+	STB_MAT *C = stb_new_matrix(A->rows, A->columns);
+	
+	for (int i = 0; i < A->rows; i++) {
+		for (int n = 0; n < A->columns; n++) {
+			C->data[i][n] = A->data[i][n] - B->data[i][n];
+		}
+	}
+
+	*D = C;
+}
+
+/* D = A + B */
+void stb_matrix_add(STB_MAT *A, STB_MAT *B, STB_MAT **D)
+{
+	if (A->columns != B->columns) {
+		printf("Cannot substract matrix: columns of A need to be equal to the columns of B!\n");
+		exit(1);
+	} else 	if (A->rows != B->rows) {
+		printf("Cannot substract matrix: rows of A need to be equal to the rows of B!\n");
+		exit(1);
+	}
+
+	STB_MAT *C = stb_new_matrix(A->rows, A->columns);
+	
+	for (int i = 0; i < A->rows; i++) {
+		for (int n = 0; n < A->columns; n++) {
+			C->data[i][n] = A->data[i][n] + B->data[i][n];
+		}
+	}
+
+	*D = C;
+}
+
+/* A => A transposed (B)*/
+void stb_transpose_matrix(STB_MAT *A, STB_MAT **Atransposed)
+{ 
+	STB_MAT *B = stb_new_matrix(A->columns, A->rows);
+
+	for (int i = 0; i < A->columns; i++) { 
+		for (int n = 0; n < A->rows; n++) { 
+			B->data[i][n] = A->data[n][i];
+		}
+	}
+
+	*Atransposed = B;
+}
+
+/* Invert matrix */
+void stb_invert_matrix(STB_MAT *A, STB_MAT **Ainverted)
+{
+	STB_MAT *temp = NULL;
+	STB_MAT *B = stb_identity_matrix(A->rows, A->columns);
+
+	stb_join_matrix(A, B, &temp);
+
+    for (int i = 0; i < A->rows; i++) {
+        /* Search for maximum in this column */
+        double maxEl = fabs(temp->data[i][i]);
+        int maxRow = i;
+        for (int k = i + 1; k < A->rows; k++) {
+            if (fabs(temp->data[k][i]) > maxEl) {
+                maxEl = temp->data[k][i];
+                maxRow = k;
+            }
+        }
+
+        /* Swap maximum row with current row (column by column) */
+        for (int k = i; k < 2 * A->rows;k++) {
+            double tmp = temp->data[maxRow][k];
+            temp->data[maxRow][k] = temp->data[i][k];
+            temp->data[i][k] = tmp;
+        }
+
+        /* Make all rows below this one 0 in current column */
+        for (int k = i + 1; k < A->rows; k++) {
+            double c = -temp->data[k][i] / temp->data[i][i];
+            for (int j=i; j < 2 * A->rows; j++) {
+                if (i == j) {
+                    temp->data[k][j] = 0;
+                } else {
+                    temp->data[k][j] += c * temp->data[i][j];
+                }
+            }
+        }
+    }
+
+    /* Solve equation Ax=b for an upper triangular matrix A */
+    for (int i = A->rows - 1; i >= 0; i--) {
+        for (int k = A->rows; k < 2 * A->rows; k++) {
+            temp->data[i][k] /= temp->data[i][i];
+        }
+
+        for (int rowModify = i - 1; rowModify >= 0; rowModify--) {
+            for (int columModify = A->rows; columModify < 2 * A->rows; columModify++) {
+                temp->data[rowModify][columModify] -= temp->data[i][columModify] * temp->data[rowModify][i];
+            }
+        }
+    }
+
+    /* Copy the final inverted matrix */
+	for (int i = 0; i < A->rows; i++) {
+		for (int k = 0; k < A->rows; k++) {
+			B->data[i][k] = temp->data[i][k + A->rows];
+		}
+	}
+
+	stb_free_matrix(temp);
+
+	*Ainverted = B;
+}
+
+void stb_matrix_multiply_by_value(STB_MAT *A, double value)
+{
+	for (int i = 0; i < A->rows; i++) {
+		for (int n = 0; n < A->columns; n++) {
+				A->data[i][n] = A->data[i][n] * value;
+		}
+	}
+}
+
+void stb_matrix_divide_by_value(STB_MAT *A, double value)
+{
+	for (int i = 0; i < A->rows; i++) {
+		for (int n = 0; n < A->columns; n++) {
+				A->data[i][n] = A->data[i][n] / value;
+		}
+	}
+}
+
+double stb_matrix_sum(STB_MAT *A)
+{
+	double sum = 0.0;
+
+	for (int i = 0; i < A->rows; i++) {
+		for (int n = 0; n < A->columns; n++) {
+				sum += A->data[i][n];
+		}
+	}
+
+	return sum;
+}
+
+STB_MAT *stb_matrix_from_double(double **data, int rows, int columns)
+{
+	STB_MAT *dup;
+	dup = (STB_MAT *) calloc(1, sizeof(STB_MAT));
+	dup->rows = rows;
+	dup->columns = columns;
+	dup->data = (double **) stb_allocmat(rows, columns, sizeof(double));
+
+	for (int i = 0; i < rows; i++) {
+		for (int n = 0; n < columns; n++) {
+			dup->data[i][n] = data[i][n];
+		}
+	}
+
+	return dup;
+}
+
+STB_MAT *stb_matrix_from_file(char *filename)
+{
+	FILE *fin = NULL;
+	if ((fin = fopen(filename, "r")) == NULL) {
+		fprintf(stderr, "Unable to open: %s\n", filename);
+		exit(1);
+	}
+
+	/* first line indicates rows and columns */
+	int rows, columns;
+	if (fscanf(fin, "%i %i", &rows, &columns) != 2) {
+		fprintf(stderr, "First line should indicate the rows and columns\n");
+		exit(1);
+	}
+
+	STB_MAT *matrix = NULL;
+	matrix = stb_new_matrix(rows, columns);
+	/* the rest of the lines are the matrix */
+	for (int i = 0; i < rows; i++) {
+		for (int n = 0; n < columns; n++) {
+			fscanf(fin, "%lf", &matrix->data[i][n]);
+		}
+	}
+
+	/* We are done, close the file */
+	fclose(fin);
+
+	return matrix;
+}
+
+/* Perform a simple linear regression and return a vector containing the Beta values, the T-test values 
+ * and the corresponding P-values. The formula determined using the least squared method is:
+ * Y = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
+ * 
+ * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
+ */
+void mlinear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue)
+{
+	/* Make a matrix containing 1s that we can add to A to make the design matrix X */
+	STB_MAT *temp = NULL;
+	temp = stb_new_matrix(A->rows, 1);
+	stb_fill_matrix(temp, 1.0);
+
+	/* Add the temp matrix (for the intercepts (column of 1s)) to the matrix with the X values (A),
+	 * this makes the design matrix X.
+	 */
+	STB_MAT *X = NULL;
+	stb_join_matrix(temp, A, &X);
+
+	/* Transpose X for: Beta = (Xtranspose*X)inverse * Xtranspose * Y */
+	STB_MAT *Xt = NULL;
+	stb_transpose_matrix(X, &Xt);
+
+	/* Xm = (Xtranspose*X) */
+	STB_MAT *Xm = NULL;
+	stb_matrix_multiply(Xt, X, &Xm);
+
+	/* Xinv = (Xtranspose*X)inverse */
+	STB_MAT *Xinv = NULL;
+	stb_invert_matrix(Xm, &Xinv);
+
+	/* P = Xtrans * Y */
+	STB_MAT *P = NULL;
+	stb_matrix_multiply(Xt, Y, &P);
+
+	/* Beta = (Xtranspose*X)inverse * Xtranspose * Y == Xinv * P */
+	STB_MAT *Beta = NULL;
+	stb_matrix_multiply(Xinv, P, &Beta);
+
+	/* Allocate space to return beta */
+	double *betaret = NULL;
+	betaret = calloc(X->columns, sizeof(double));
+	/* copy in the beta values */
+	for (int i = 0; i < X->columns; i++) {
+		betaret[i] = Beta->data[i][0];
+	}
+	*beta = betaret;
+
+	/* Calculate the residuals == real Y minus the predicted Y = (Y - Y') == Y - X * Beta */
+	STB_MAT *Ypredicted;
+	stb_matrix_multiply(X, Beta, &Ypredicted);
+
+	STB_MAT *Residuals;
+	stb_matrix_subs(Y, Ypredicted, &Residuals);
+	
+	/* Determine the sum of squares */
+	double sumofsquares = 0.0;
+	for (int i = 0; i < Residuals->rows; i++) {
+		for (int n = 0; n < Residuals->columns; n++) {
+			sumofsquares += stb_sqr(Residuals->data[i][n]);
+		}
+	}
+
+	/* The Means Square Error = SSE / (number of data values) - (number of predictor values + 1) */
+	double MSE = sumofsquares / (A->rows - (A->columns + 1));
+
+	/* Multiply the (Xtranspose*X)inverse with the MSE to get the variance-covariance matrix 
+	 * of the estimated regression coefficients. The diagonal will have the std.err.
+	 */
+	stb_matrix_multiply_by_value(Xinv, MSE);
+
+	/* Determine the estimated std.err to normalize the regression coefficients */
+	STB_MAT *stdev;
+	stdev = stb_new_matrix(Beta->rows, Beta->columns);
+
+	for (int i = 0; i < Xinv->rows; i++) {
+		for (int n = 0; n < Xinv->columns; n++) {
+			if (i == n) {
+				/* std.dev = sqrt(std.err.) <- the diagonal of the variance-covariance matrix */
+				stdev->data[i][0] = sqrt(Xinv->data[i][n]);
+			}
+		}
+	}
+
+	/* Allocate space to return the T-value and the P-value */
+	double *tvalret = NULL;
+	tvalret = calloc(X->columns, sizeof(double));
+	double *pvalret = NULL;
+	pvalret = calloc(X->columns, sizeof(double));
+
+	/* Normalize values (e.a. divide by the standard deviation) and lookup the T-value to get the p-value */
+	/* if the p-values are all extremely small, it indicates that the predictor are significantly related to the response */
+	for (int i = 0; i < Beta->rows; i++) {
+		tvalret[i] = Beta->data[i][0] / stdev->data[i][0];
+		if (tvalret[i] > 0) {
+			pvalret[i] = 2 * (1 - stb_cdf_student_t(Beta->data[i][0] / stdev->data[i][0], (A->rows - (A->columns + 1))));	
+		} else {
+			pvalret[i] = 2 * (1 - stb_cdf_student_t(-Beta->data[i][0] / stdev->data[i][0], (A->rows - (A->columns + 1))));		
+		}
+	}
+
+	*tvalue = tvalret;
+	*pvalue = pvalret;
+
+	/* Not needed anymore */
+	stb_free_matrix(temp);
+	stb_free_matrix(X);
+	stb_free_matrix(Xt);
+	stb_free_matrix(Xm);
+	stb_free_matrix(Xinv);
+	stb_free_matrix(P);
+	stb_free_matrix(Beta);
+	stb_free_matrix(Ypredicted);
+	stb_free_matrix(Residuals);
+	stb_free_matrix(stdev);
+}
+
+/* Perform a simple logistic regression and return a vector containing the Beta values, the Z-test values 
+ * , the corresponding P-values and return the log-likelihood. The formula determined using the newton method is:
+ * ln(1 / 1 - Y) = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
+ *
+ * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
+ */
+double mlogistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue)
+{
+	STB_MAT *Pi = NULL;
+	STB_MAT *V = NULL;
+	STB_MAT *Xt = NULL;
+	STB_MAT *Xm = NULL;
+	STB_MAT *Xmm = NULL;
+	STB_MAT *Xinv = NULL;
+	STB_MAT *Ym;
+	STB_MAT *P = NULL;
+	STB_MAT *Beta1 = NULL;
+	STB_MAT *Beta = NULL;
+	double loglikelihood = 0.0;
+	double oldloglikelihood = 0.0;
+	double delta = 0.0;
+	/* Make a matrix containing 1s that we can add to A to make the design matrix X */
+	STB_MAT *temp = NULL;
+	temp = stb_new_matrix(A->rows, 1);
+	stb_fill_matrix(temp, 1.0);
+
+	/* Make the design matrix including intercepts (column of 1s; temp) */
+	STB_MAT *X = NULL;
+	stb_join_matrix(temp, A, &X);
+
+	/* Not needed anymore */
+	stb_free_matrix(temp);
+
+	/* Initialize Beta0 to values close to 0 (0.01) except for the intercept (1.0), this hopefully leads to a
+	 * lower amount of iterations needed to converge.
+	 */
+	STB_MAT *Beta0 = NULL;
+	Beta0 = stb_new_matrix(X->columns, 1);
+	stb_fill_matrix(Beta0, 0.01);
+	Beta0->data[0][0] = 1.0;
+
+	/* Transpose X for: Beta = (Xtranspose*V*X)inverse * Xtranspose * (Y - Pm)
+	 * We only have to do this once, so it is outside the loop.
+	 */
+	stb_transpose_matrix(X, &Xt);
+
+	/* Perform the Newton iterations to approximate the values of Beta 
+	 * Beta = (Xtranspose*V*X)inverse * Xtranspose * (Y - Pm)
+	 */
+	for (int i = 1; i <= 1024; i++) {
+		/* Calculate the predicted probabilities */
+		stb_matrix_multiply(X, Beta0, &Pi);
+		for (int i = 0; i < Pi->rows; i++) {
+			for (int n = 0; n < Pi->columns; n++) {
+				Pi->data[i][n] = 1.0 / (1.0 + exp(-1.0 * Pi->data[i][n]));
+			}
+		}
+
+		/* make the V matrix with Pi * (1- Pi) on the diagonal */
+		V = stb_new_matrix(Pi->rows, Pi->rows);
+		for (int i = 0; i < V->rows; i++) {
+			V->data[i][i] = Pi->data[i][0] * (1 - Pi->data[i][0]);
+		}
+
+		/* (Xtranspose*V) */
+		stb_matrix_multiply(Xt, V, &Xm);
+
+		/* (Xtranspose*V*X) */
+		stb_matrix_multiply(Xm, X, &Xmm);
+
+		/* Calculate: (Xtranspose*V*X)inverse */
+		stb_invert_matrix(Xmm, &Xinv);
+
+		/* Calculate: Xtrans * (Y - Pm) -> Ym = Y - Pi = real probability - predicted probability */
+		stb_matrix_subs(Y, Pi, &Ym);
+
+		/* Calculate: Xtrans * (Y - Pm)*/
+		stb_matrix_multiply(Xt, Ym, &P);
+
+		/* Beta = (Xtranspose*X)inverse * Xtranspose * Y <= Xinv * P */
+		stb_matrix_multiply(Xinv, P, &Beta1);
+
+		stb_matrix_add(Beta0, Beta1, &Beta);
+
+		/* Determine the new probabilities */
+		stb_matrix_multiply(X, Beta, &Pi);
+		for (int i = 0; i < Pi->rows; i++) {
+			for (int n = 0; n < Pi->columns; n++) {
+				Pi->data[i][n] = 1.0 / (1.0 + exp(-1.0 * Pi->data[i][n]));
+			}
+		}
+
+		/* Calculate the new log-likelihood 
+		 * Pi = X * B
+		 * log-likelihood = sum(-1ln(1+exp(Pi))+YiPi) 
+		 */
+		loglikelihood = 0.0;
+		for (int i = 0; i < Y->rows; i++) {
+			for (int n = 0; n < Y->columns; n++) {
+				loglikelihood += -log(1 + exp(Pi->data[i][n])) + Y->data[i][n] * Pi->data[i][n];
+			}
+		}
+
+		/* The first iteration, we do not have a old log-likelihood yet */
+		if (i == 1)	{
+			oldloglikelihood = 2 * loglikelihood;
+		}	
+
+		delta = loglikelihood - oldloglikelihood;
+
+		printf("delta: %lf \n", delta);
+
+		/* Needs to be freed before the break statement */
+		stb_free_matrix(Pi);
+		stb_free_matrix(V);
+		stb_free_matrix(Xm);
+		stb_free_matrix(Xmm);
+		stb_free_matrix(Ym);
+		stb_free_matrix(Beta1);
+
+		if (delta < EPSILON) {
+			/* Found it */
+			break;
+		}
+
+		oldloglikelihood = loglikelihood;
+
+		/* Update the Beta and free some matrix that has to be freed after the break statement */
+		stb_free_matrix(Beta0);
+		Beta0 = stb_dup_matrix(Beta);
+		stb_free_matrix(Xinv);
+	}	
+
+	if (delta > EPSILON) {
+		printf("We did not converge!\n");
+	}
+
+	/* Allocate space to return beta */
+	double *betaret = NULL;
+	betaret = calloc(X->columns, sizeof(double));
+	
+	/* copy in the beta values */
+	for (int i = 0; i < X->columns; i++) {
+		betaret[i] = Beta->data[i][0];
+	}
+	*beta = betaret;
+
+	/* Since we converged (I hope), we will use the "old" values to determine the z-value */
+
+	// /* new Pi*/
+	// stb_matrix_multiply(X, Beta, &Pi);
+
+	// /* The new predicted values */
+	// for (int i = 0; i < Pi->rows; i++) {
+	// 	for (int n = 0; n < Pi->columns; n++) {
+	// 		Pi->data[i][n] = 1.0 / (1.0 + exp(-1.0 * Pi->data[i][n]));
+	// 	}
+	// }	
+
+	// /* Construct the new V matrix with Pi->data[i][0] * (1 - Pi->data[i][0]) on the diagonal */
+	// V = stb_new_matrix(Pi->rows, Pi->rows);
+	// for (int i = 0; i < V->rows; i++) {
+	// 	V->data[i][i] = Pi->data[i][0] * (1 - Pi->data[i][0]);
+	// }
+
+	// /* (Xtranspose*V) */
+	// stb_matrix_multiply(Xt, V, &Xm);
+
+	// /* (Xtranspose*V*X) */
+	// stb_matrix_multiply(Xm, X, &Xmm);
+
+	// /* Calculate the variance-covariance matrix of the estimated regression coefficients: 
+	//  * (Xtranspose*V*X)inverse 
+	//  */
+	// stb_invert_matrix(Xmm, &Xinv);
+
+	STB_MAT *stdev;
+	stdev = stb_new_matrix(Beta->rows, Beta->columns);
+	for (int i = 0; i < Xinv->rows; i++) {
+		for (int n = 0; n < Xinv->columns; n++) {
+			if (i == n) {
+				/* Store the standard deviations for the estimated values */
+				stdev->data[i][0] = sqrt(Xinv->data[i][n]);
+			}
+		}
+	}
+
+	/* Allocate space to return the T-value and the P-value */
+	double *zvalret = NULL;
+	zvalret = calloc(X->columns, sizeof(double));
+	double *pvalret = NULL;
+	pvalret = calloc(X->columns, sizeof(double));
+
+	/* Normalize values (e.a. divide by the standard deviation) and lookup the T-value to get the p-value */
+	/* if the p-values are all extremely small, it indicates that the predictor are significantly related to the response */
+	for (int i = 0; i < Beta->rows; i++) {
+		zvalret[i] = Beta->data[i][0] / stdev->data[i][0];
+		if (zvalret[i] > 0) {
+			pvalret[i] = 2 * (1 - stb_phi(Beta->data[i][0] / stdev->data[i][0]));	
+		} else {
+			pvalret[i] = 2 * (1 - stb_phi(-Beta->data[i][0] / stdev->data[i][0]));		
+		}
+	}
+
+	*zvalue = zvalret;
+	*pvalue = pvalret;
+
+	/* Not needed anymore */
+	stb_free_matrix(Xt);
+	stb_free_matrix(Beta0);
+	stb_free_matrix(Beta);
+	stb_free_matrix(X);
+	stb_free_matrix(stdev);
+	/* Free here since we still need it to calculate the std.dev */
+	stb_free_matrix(Xinv);
+
+	return loglikelihood;
 }
 
 #endif //STB_STATS_DEFINE
