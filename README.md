@@ -37,3 +37,8 @@ Functions included are:
 * stb_ftest, 
 * stb_benjamini_hochberg
 * stb_chisqr, stb_chisqr_matrix, stb_gtest, stb_gtest_matrix, 
+
+CITATION
+
+If you use this Tool-Box in a publication, please reference: 
+Voshol, G.P. (2019). STB: A simple Statistics Tool Box (Version 1.06) [Software]. Available from https://github.com/gerbenvoshol/Statistics-Tool-Box
