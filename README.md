@@ -41,4 +41,7 @@ Functions included are:
 CITATION
 
 If you use this Tool-Box in a publication, please reference: 
-Voshol, G.P. (2019). STB: A simple Statistics Tool Box (Version 1.06) [Software]. Available from https://github.com/gerbenvoshol/Statistics-Tool-Box
+
+Voshol, G.P. (2019). STB: A simple Statistics Tool Box (Version 1.06) [Software]. 
+
+Available from https://github.com/gerbenvoshol/Statistics-Tool-Box
