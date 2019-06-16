@@ -57,6 +57,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
 #ifdef __cplusplus
 #define STB_EXTERN   extern "C"
@@ -748,6 +749,21 @@ double stb_cdf_chisqr(double CV, double degrees_of_freedom)
 
 	// return (double)probability;
 
+}
+
+/* This function evaluates the Gamma distribution CDF.
+ * a	the gamma shape parameter \alpha
+ * b	the gamma shape parameter \theta
+ * x	the value at which to evaluate the distribution, must not be negative
+ * upper return upper (if 1) or lower (if 0)
+ */
+double stb_cdf_gamma(double a, double b, double x, int upper)
+{
+	assert(x >= 0);
+
+	double probability = stb_incgamma(b, a * x) / stb_gamma(b);
+	
+	return upper ? probability : 1 - probability;
 }
 
 /* Given  an  array  of data (length n), this routine  returns  its  mean and standard  deviation standard_dev calculated using the Welford’s method. */
