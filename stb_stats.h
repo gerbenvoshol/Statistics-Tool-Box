@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+ 		1.07  stb_spearman (Spearman's Rank correlation)
 		1.06  stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, etc., stb_multi_linear_regression
  		      stb_multi_logistic_regression 
 		1.05  stb_ksample_anderson_darling, stb_2sample_anderson_darling, stb_expfit (Exponential fitting), 
@@ -202,6 +203,9 @@ STB_EXTERN double stb_factorial(int n);
 
 /* Compute (numerical stable) sum of the data using the Neumaier summation algorithm */
 STB_EXTERN double stb_sum(double *data, int n);
+
+/* Returns Spearman's Rank correlation of two vectors x and y, each of size n */
+STB_EXTERN double stb_spearman(double *x, double *y, int n);
 
 /* Calculate the linear regression
  * y = ax + b
@@ -1900,6 +1904,74 @@ double stb_factorial(int n)
 
 	return factorial;
 }
+
+/* Returns and array with the ranks of the set of observations. This is needed by stb_spearman */ 
+double *stb_rank(double *x, int n) 
+{   
+    double *rank_x = malloc(n * sizeof(double));
+
+    for(int i = 0; i < n; i++) { 
+        int r = 1, s = 1; 
+          
+        /* Count no of smaller elements in 0 to i-1 */ 
+        for(int j = 0; j < i; j++) { 
+            if (x[j] < x[i] ) {
+            	r++; 
+            }
+            if (x[j] == x[i] ) {
+            	s++;
+            } 
+        } 
+      
+        /* Count no of smaller elements in i+1 to n-1 */ 
+        for (int j = i+1; j < n; j++) { 
+            if (x[j] < x[i] ) {
+            	r++;
+            } 
+            if (x[j] == x[i] ) {
+            	s++;
+            } 
+        } 
+  
+        /* Use Fractional Rank formula: fractional_rank = r + (n-1)/2 */ 
+        rank_x[i] = r + (s-1) * 0.5;         
+    } 
+      
+    /* Return Rank Vector */ 
+    return rank_x; 
+} 
+  
+/* Returns Spearman's Rank correlation of two vectors x and y, each of size n */
+double stb_spearman(double *x, double *y, int n) 
+{  
+    double sigma_x = 0, sigma_y = 0, sigma_xy = 0; 
+    double sigma_xsq = 0, sigma_ysq = 0; 
+	
+	double *xrank = stb_rank(x, n);
+	double *yrank = stb_rank(y, n);
+
+    for (int i = 0; i < n; i++) { 
+        /* sum of elements of array x and y */ 
+        sigma_x += xrank[i]; 
+        sigma_y += yrank[i]; 
+  
+        /* sum of x[i] * y[i] */ 
+        sigma_xy += xrank[i] * yrank[i]; 
+  
+        /* sum of square of array elements */ 
+        sigma_xsq += xrank[i] * xrank[i]; 
+        sigma_ysq += yrank[i] * yrank[i]; 
+    } 
+  
+    // Calculate spearman correlation coefficient.
+    double num = n * sigma_xy -  sigma_x * sigma_y;
+    double den = sqrt((n * sigma_xsq - sigma_x * sigma_x) *  (n * sigma_ysq - sigma_y * sigma_y)); 
+
+	free(xrank);
+	free(yrank);
+
+    return num/den; 
+} 
 
 /* Calculate the liniear regression
  * x,y  = arrays of data
