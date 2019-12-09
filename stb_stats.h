@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.06 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.08 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+ 		1.08  stb_logistic_regression_L2 simple L2-regularized logistic regression
  		1.07  stb_spearman (Spearman's Rank correlation)
 		1.06  stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, etc., stb_multi_linear_regression
  		      stb_multi_logistic_regression 
@@ -462,6 +463,18 @@ STB_EXTERN void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **bet
  * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
  */
 STB_EXTERN double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
+
+/* L2-regularized logistic regression
+ * NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
+ * NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+ */
+STB_EXTERN void stb_logistic_regression_L2(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
+
+/* simple logistic regression
+ * NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
+ * NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+ */
+STB_EXTERN void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
 #ifdef STB_STATS_DEFINE
 
@@ -3353,6 +3366,297 @@ double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, doub
 
 	return loglikelihood;
 }
+
+// simple logistic regression
+// NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
+// NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue)
+{
+    // the convergence rate
+    double delta = 1e-8;
+    // the learning rate
+    double epsilon = 0.001;
+    int max_iters = 1e6;
+    int iter = 0;
+
+    // init
+    double *beta_old = calloc(A->columns, sizeof(double));
+    /* Initialize Beta0 to values close to 0 (0.01) except for the intercept (1.0), this hopefully leads to a
+     * lower amount of iterations needed to converge.
+     */
+    beta_old[0] = 1.0;
+    for (size_t k=1; k<A->columns; ++k) {
+        beta_old[k] = 0.01;
+    }
+    double *beta_new = calloc(A->columns, sizeof(double));     
+
+    while (iter <= max_iters) {
+        // update each weight
+        for (size_t k=0; k<A->columns; ++k) {
+            double gradient = 0;
+            for (size_t i=0; i<A->rows; ++i) {
+                double z_i = 0;
+                for (size_t j=0; j<A->columns; ++j) {
+                    z_i += beta_old[j] * A->data[i][j];
+                }
+                gradient += Y->data[i][0] * A->data[i][k] * sigmoid((-Y->data[i][0]) * z_i);
+            }            
+            beta_new[k] = beta_old[k] + epsilon * gradient;
+        }
+
+        double dist = euclidian_dist(beta_new, beta_old, A->columns);
+        if (dist < delta && iter > 2) {
+            break;
+        } else {
+        	for (int i = 0; i < A->columns; i++) {
+            	beta_old[i] = beta_new[i];
+            }
+        }
+
+        iter++;
+        //printf("%i delta: %f\n", iter, dist);
+    }
+
+    if (iter >= max_iters) {
+        printf("Did not converge in %i iterations!\n", iter);
+    }
+
+    //variance-covariance matrix
+    double *var = calloc(A->columns, sizeof(double));
+    for (size_t k=0; k<A->columns; ++k) {
+        for (size_t i=0; i<A->rows; ++i) {
+            double z_i = 0;
+            for (size_t j=0; j<A->columns; ++j) {
+                z_i += beta_new[j] * A->data[i][j];
+            }
+            var[k] += A->data[i][k] * A->data[i][k] * sigmoid(z_i) * (1 - sigmoid(z_i));
+        }
+        var[k] = sqrt(1.0/var[k]);
+    }
+
+    double *zvalret = NULL;
+    zvalret = calloc(A->columns, sizeof(double));
+    double *pvalret = NULL;
+    pvalret = calloc(A->columns, sizeof(double));
+
+    /* Normalize values (e.a. divide by the standard deviation) and lookup the T-value to get the p-value */
+    /* if the p-values are all extremely small, it indicates that the predictor are significantly related to the response */
+    for (int i = 0; i < A->columns; i++) {
+        zvalret[i] = beta_new[i] / var[i];
+        if (zvalret[i] > 0) {
+            pvalret[i] = 2 * (1 - stb_phi(beta_new[i] / var[i]));   
+        } else {
+            pvalret[i] = 2 * (1 - stb_phi(-beta_new[i] / var[i]));      
+        }
+    }
+
+    printf("zvalue\n");
+    for (size_t k=0; k<A->columns; ++k) {
+        printf("%f\n", zvalret[k]);
+    }
+    printf("pvalue\n");
+    for (size_t k=0; k<A->columns; ++k) {
+        printf("%f\n", pvalret[k]);
+    }
+
+    printf("the best weight:\n");
+    for (int i = 0; i < A->columns; i++) {
+        printf("%f\t", beta_new[i]);
+    }
+    printf("\n");
+    
+    free(beta_old);
+    free(var);
+    
+    *beta = beta_new;
+    *zvalue = zvalret;
+    *pvalue = pvalret;
+}
+
+// L2-regularized logistic regression
+// NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
+// NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+void stb_logistic_regression_L2(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue)
+{
+    // the convergence rate
+    double delta = 1e-8;
+    // the learning rate
+    double epsilon = 0.001;
+    double cost = 1.0;
+    int max_iters = 1e6;
+    int iter = 0;
+
+    // init
+    double *beta_old = calloc(A->columns, sizeof(double));
+    /* Initialize Beta0 to values close to 0 (0.01) except for the intercept (1.0), this hopefully leads to a
+     * lower amount of iterations needed to converge.
+     */
+    beta_old[0] = 1.0;
+    for (size_t k=1; k<A->columns; ++k) {
+        beta_old[k] = 0.01;
+    }
+    double *beta_new = calloc(A->columns, sizeof(double));     
+    
+    while (iter <= max_iters) {
+        // update each weight
+        for (size_t k=0; k<A->columns; ++k) {
+            double gradient = 0;
+            for (size_t i=0; i<A->rows; ++i) {
+                double z_i = 0;
+                for (size_t j=0; j<A->columns; ++j) {
+                    z_i += beta_old[j] * A->data[i][j];
+                }
+                gradient += Y->data[i][0] * A->data[i][k] * sigmoid((-Y->data[i][0]) * z_i);
+            }            
+            beta_new[k] = beta_old[k] + epsilon * gradient - epsilon * cost * beta_old[k];
+        }
+
+        double dist = euclidian_dist(beta_new, beta_old, A->columns);
+        if (dist < delta && iter > 2) {
+            break;
+        } else {
+            for (int i = 0; i < A->columns; i++) {
+                beta_old[i] = beta_new[i];
+            }
+        }
+
+        iter++;
+        //printf("%i delta: %f\n", iter, dist);
+    }
+
+    if (iter >= max_iters) {
+        printf("Did not converge in %i iterations!\n", iter);
+    }
+
+    //variance-covariance matrix
+    double *var = calloc(A->columns, sizeof(double));
+    for (size_t k=0; k<A->columns; ++k) {
+        for (size_t i=0; i<A->rows; ++i) {
+            double z_i = 0;
+            for (size_t j=0; j<A->columns; ++j) {
+                z_i += beta_new[j] * A->data[i][j];
+            }
+            var[k] += A->data[i][k] * A->data[i][k] * sigmoid(z_i) * (1 - sigmoid(z_i));
+        }
+        var[k] = sqrt(1.0/var[k]);
+    }
+
+    double *zvalret = NULL;
+    zvalret = calloc(A->columns, sizeof(double));
+    double *pvalret = NULL;
+    pvalret = calloc(A->columns, sizeof(double));
+
+    /* Normalize values (e.a. divide by the standard deviation) and lookup the T-value to get the p-value */
+    /* if the p-values are all extremely small, it indicates that the predictor are significantly related to the response */
+    for (int i = 0; i < A->columns; i++) {
+        zvalret[i] = beta_new[i] / var[i];
+        if (zvalret[i] > 0) {
+            pvalret[i] = 2 * (1 - stb_phi(beta_new[i] / var[i]));   
+        } else {
+            pvalret[i] = 2 * (1 - stb_phi(-beta_new[i] / var[i]));      
+        }
+    }
+
+    printf("zvalue\n");
+    for (size_t k=0; k<A->columns; ++k) {
+        printf("%f\n", zvalret[k]);
+    }
+    printf("pvalue\n");
+    for (size_t k=0; k<A->columns; ++k) {
+        printf("%f\n", pvalret[k]);
+    }
+
+    printf("the best weight:\n");
+    for (int i = 0; i < A->columns; i++) {
+        printf("%f\t", beta_new[i]);
+    }
+    printf("\n");
+    
+    free(beta_old);
+    free(var);
+
+    *beta = beta_new;
+    *zvalue = zvalret;
+    *pvalue = pvalret;
+}
+
+// int main(int argc, char *argv[])
+// {
+// 	STB_MAT *X = stb_matrix_from_file("x.train");
+// 	STB_MAT *Y = stb_matrix_from_file("y.train");
+// 	double *beta;
+// 	double *zvalue;
+// 	double *pvalue;
+//     // stb_multi_logistic_regression works for -1 - 1 values in Y
+//     printf("==========================\n");
+// 	stb_logistic_regression(X, Y, &beta, &zvalue, &pvalue);
+//     free(beta);
+//     free(zvalue);
+//     free(pvalue);
+//     printf("\n");
+
+//     printf("==========================\n");
+//     stb_logistic_regression_L2(X, Y, &beta, &zvalue, &pvalue);
+//     free(beta);
+//     free(zvalue);
+//     free(pvalue);
+//     printf("\n");
+
+//     STB_MAT *BIAS = stb_new_matrix(X->rows, 1);
+//     for (int i = 0; i < X->rows; i++) {
+//         BIAS->data[i][0] = 1.0;
+//     }
+
+//     STB_MAT *XBIAS = NULL;
+//     stb_join_matrix(BIAS, X, &XBIAS);
+//     printf("==========================\n");
+//     stb_logistic_regression(XBIAS, Y, &beta, &zvalue, &pvalue);
+//     free(beta);
+//     free(zvalue);
+//     free(pvalue);
+//     printf("\n");
+
+//     printf("==========================\n");
+//     stb_logistic_regression_L2(XBIAS, Y, &beta, &zvalue, &pvalue);
+//     free(beta);
+//     free(zvalue);
+//     free(pvalue);
+//     printf("\n");
+
+//     // stb_multi_logistic_regression works for 0 - 1 values in Y
+//     for (int i = 0; i < X->rows; i++) {
+//         if (Y->data[i][0] < 0.5) {
+//             Y->data[i][0] = 0;
+//         }
+//     }
+
+//     printf("==========================\n");
+//     stb_multi_logistic_regression(X, Y, &beta, &zvalue, &pvalue);     
+//     printf("zvalue\n");
+//     for (size_t k=0; k<XBIAS->columns; ++k) {
+//         printf("%f\n", zvalue[k]);
+//     }
+//     printf("pvalue\n");
+//     for (size_t k=0; k<XBIAS->columns; ++k) {
+//         printf("%f\n", pvalue[k]);
+//     }
+
+//     printf("the best weight:\n");
+//     for (int i = 0; i < XBIAS->columns; i++) {
+//         printf("%f\t", beta[i]);
+//     }
+//     printf("\n");
+//     free(beta);
+//     free(zvalue);
+//     free(pvalue);  
+
+//     stb_free_matrix(X);
+//     stb_free_matrix(Y);
+//     stb_free_matrix(BIAS);
+//     stb_free_matrix(XBIAS);
+
+// 	return 0;
+// }
 
 #endif //STB_STATS_DEFINE
 #endif //STB__STATS__H
