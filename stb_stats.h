@@ -3367,6 +3367,40 @@ double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, doub
 	return loglikelihood;
 }
 
+double euclidian_dist(const double *v1, const double *v2, const int size) {
+    double sum = 0.0;
+
+    for (size_t i=0; i<size; ++i) {
+        double minus = v1[i] - v2[i];
+        sum += (minus * minus);
+    }
+
+    return sqrt(sum);
+}
+
+double sigmoid(double x) {
+    return 1.0 / (1.0 + exp(-x));
+}
+
+// Not that fast ?!
+double fast_sigmoid(double value)
+{
+    //double e = 2.718281828;
+    //return 1.0 / (1.0 + pow(e, -x));
+    //return atan(M_PI*x/2)*2/M_PI;
+    //return atan(x);
+    //return 1/(1+exp(-x));
+    //return x/sqrt(1+x*x);
+    //return erf(sqrt(M_PI)*x/2);
+    //return tanh(x);
+    //return x / (1.0 + fabs(x));
+
+    double x = fabs(value);
+    double x2 = x*x;
+    double e = 1.0f + x + x2*0.555f + x2*x2*0.143f;
+    return 1.0f / (1.0f + (value > 0 ? 1.0f / e : e));
+}
+
 // simple logistic regression
 // NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
 // NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
