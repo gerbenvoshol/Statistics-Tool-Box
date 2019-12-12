@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.08 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.09 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+ 		1.09  stb_jenks Initial port of O(k×n×log(n)) Jenks-Fisher algorithm originally created by Maarten Hilferink
  		1.08  stb_logistic_regression_L2 simple L2-regularized logistic regression
  		1.07  stb_spearman (Spearman's Rank correlation)
 		1.06  stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, etc., stb_multi_linear_regression
@@ -488,7 +489,17 @@ STB_EXTERN void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, d
 /* Filter items in place and return list of unique numbers, their count and the number of unique numbers.
  * NOTE: if a separate list is desired, duplicate it before calling this function 
  */
-STB_EXTERN int stb_dunique(double *values, double **counts, double epsilon, int len)
+STB_EXTERN int stb_dunique(double *values, double **counts, double epsilon, int len);
+
+/**
+ * Main entry point for creation of Jenks-Fisher natural breaks.
+ * Port of Jenks/Fisher breaks originally created in C++ by Maarten Hilferink.
+ * @param values array of the values, do not need to be sorted.
+ * @param k number of breaks to create
+ * @param len length of values array
+ * @return Array with breaks
+ */
+STB_EXTERN double *stb_jenks(double *values, int len, int k);
 
 #ifdef STB_STATS_DEFINE
 
@@ -3872,6 +3883,340 @@ void stb_logistic_regression_L2(STB_MAT *A, STB_MAT *Y, double **beta, double **
     *pvalue = pvalret;
 }
 
+struct Jenks {
+        double *cumulValues_value;
+        double *cumulValues_weight;
+        size_t cumulValues_idx;
+        size_t numValues; // number of data points
+        size_t numBreaks; // k
+        size_t bufferSize; // = number of data points - (numBreaks - 1)
+        double *previousSSM; // bufferSize long
+        double *currentSSM; // bufferSize long
+        int *classBreaks; // bufferSize * (numBreaks - 1) long
+        int classBreaksIndex; // 0
+        int completedRows; // 0
+};
+
+struct Jenks *Init_JenksFisher(const double *values, const double *counts, size_t m, size_t k)
+{
+	struct Jenks *JenksFisher = NULL;
+	JenksFisher = calloc(1, sizeof(struct Jenks));
+
+	JenksFisher->numValues = m;
+	JenksFisher->numBreaks = k;
+	JenksFisher->bufferSize = JenksFisher->numValues - (JenksFisher->numBreaks - 1);
+	JenksFisher->previousSSM = calloc(JenksFisher->bufferSize, sizeof(double));
+	JenksFisher->currentSSM = calloc(JenksFisher->bufferSize, sizeof(double));
+	JenksFisher->classBreaks = calloc(JenksFisher->bufferSize * (JenksFisher->numBreaks - 1), sizeof(int));
+	JenksFisher->classBreaksIndex = 0;
+	JenksFisher->completedRows = 0;
+	JenksFisher->cumulValues_value = calloc(JenksFisher->numValues, sizeof(double));
+	JenksFisher->cumulValues_weight = calloc(JenksFisher->numValues, sizeof(double));
+	JenksFisher->cumulValues_idx = 0;
+
+	double w = 0.0, cw = 0.0, cwv = 0.0;
+	for (int i = 0; i < JenksFisher->numValues; ++i) {
+        w = counts[i];
+        cw += w;
+
+        if (cw < w) {
+        	fprintf(stderr, "Overflow detected!\n");
+        	return NULL;
+        }
+
+        cwv += w * values[i];
+
+        JenksFisher->cumulValues_weight[JenksFisher->cumulValues_idx] = cw;
+        JenksFisher->cumulValues_value[JenksFisher->cumulValues_idx] = cwv;
+        JenksFisher->cumulValues_idx++;
+
+        if (i < JenksFisher->bufferSize) {
+            JenksFisher->previousSSM[i] = cwv * cwv / cw; // prepare sum of squared means for first class. Last (k-1) values are omitted
+        }
+		
+	}
+
+	return JenksFisher;
+}
+
+/**
+ * Gets sum of weighs for elements with index b..e.
+ *
+ * @param b index of begin element
+ * @param e index of end element
+ * @return sum of weights.
+ */
+double getSumOfWeights(struct Jenks *JenksFisher, size_t b, size_t e) {
+    //assert (b != 0);    // First element always belongs to class 0, thus queries should never include it.
+    assert (b <= e);
+    assert (e < JenksFisher->numValues);
+
+    double res = JenksFisher->cumulValues_weight[e];
+    res -= JenksFisher->cumulValues_weight[b - 1];
+
+    return res;
+}
+
+/**
+ * Gets sum of weighed values for elements with index b..e
+ *
+ * @param b index of begin element
+ * @param e index of end element
+ * @return the cumul. sum of the values*weight
+ */
+double getSumOfWeightedValues(struct Jenks *JenksFisher, size_t b, size_t e) {
+    //assert (b != 0);    // First element always belongs to class 0, thus queries should never include it.
+    assert (b <= e);
+    assert (e < JenksFisher->numValues);
+
+    double res = JenksFisher->cumulValues_value[e];
+    res -= JenksFisher->cumulValues_value[b - 1];
+
+    return res;
+}
+
+/**
+ * Gets the Squared Mean for elements within index b..e, multiplied by weight. Note that
+ * n*mean^2 = sum^2/n when mean := sum/n
+ *
+ * @param b index of begin element
+ * @param e index of end element
+ * @return the sum of squared mean
+ */
+double getSSM(struct Jenks *JenksFisher, int b, int e) {
+    double res = getSumOfWeightedValues(JenksFisher, b, e);
+    return res * res / getSumOfWeights(JenksFisher, b, e);
+}
+
+/**
+ * Finds CB[i+completedRows] given that the result is at least
+ * bp+(completedRows-1) and less than ep+(completedRows-1)
+ * Complexity: O(ep-bp) <= O(m) @
+ *
+ * @param i startIndex
+ * @param bp endindex
+ * @param ep
+ *
+ * @return the index
+ */
+int findMaxBreakIndex(struct Jenks *JenksFisher, int i, int bp, int ep) {
+    assert (bp < ep);
+    assert (bp <= i);
+    assert (ep <= i + 1);
+    assert (i < JenksFisher->bufferSize);
+    assert (ep <= JenksFisher->bufferSize);
+
+    double minSSM = JenksFisher->previousSSM[bp] + getSSM(JenksFisher, bp + JenksFisher->completedRows, i + JenksFisher->completedRows);
+    int foundP = bp;
+    while (++bp < ep) {
+        double currSSM = JenksFisher->previousSSM[bp] + getSSM(JenksFisher, bp + JenksFisher->completedRows, i + JenksFisher->completedRows);
+        if (currSSM > minSSM) {
+            minSSM = currSSM;
+
+            foundP = bp;
+        }
+    }
+    JenksFisher->currentSSM[i] = minSSM;
+    return foundP;
+}
+
+/**
+ * Find CB[i+completedRows] for all i>=bi and i<ei given that the
+ * results are at least bp+(completedRows-1) and less than
+ * ep+(completedRows-1)
+ * Complexity: O(log(ei-bi)*Max((ei-bi),(ep-bp)))
+ * <= O(m*log(m))
+ *
+ *
+ * @param bi
+ * @param ei
+ * @param bp
+ * @param ep
+ * @return
+ */
+void calcRange(struct Jenks *JenksFisher, int bi, int ei, int bp, int ep) {
+    assert (bi <= ei);
+
+    assert (ep <= ei);
+    assert (bp <= bi);
+
+    if (bi == ei) {
+        return;
+    }
+    assert (bp < ep);
+
+    int mi = (int) floor((double)(bi + ei) / 2.0);
+    int mp = findMaxBreakIndex(JenksFisher, mi, bp, fmin((double)ep, (double) mi + 1.0));
+
+    assert (bp <= mp);
+    assert (mp < ep);
+    assert (mp <= mi);
+
+    // solve first half of the sub-problems with lower 'half' of possible outcomes
+    calcRange(JenksFisher, bi, mi, bp, fmin((double)mi, (double)mp + 1.0));
+
+    JenksFisher->classBreaks[JenksFisher->classBreaksIndex + mi] = mp; // store result for the middle element.
+
+    // solve second half of the sub-problems with upper 'half' of possible outcomes
+    calcRange(JenksFisher, mi + 1, ei, mp, ep);
+}
+
+/**
+ * Swaps the content of the two lists with each other.
+ */
+void swapArrays(struct Jenks *JenksFisher) {
+    double temp;
+    int i;
+
+    for (i = 0; i < JenksFisher->bufferSize; i++) {
+    	temp = JenksFisher->previousSSM[i];
+    	JenksFisher->previousSSM[i] = JenksFisher->currentSSM[i];
+    	JenksFisher->currentSSM[i] = temp;
+    }
+}
+
+/**
+ * Starting point of calculation of breaks.
+ *
+ * complexity: O(m*log(m)*k)
+ */
+void calcAll(struct Jenks *JenksFisher) {
+    if (JenksFisher->numBreaks > 1) {
+        JenksFisher->classBreaksIndex = 0;
+        for (JenksFisher->completedRows = 1; JenksFisher->completedRows < JenksFisher->numBreaks - 1; ++JenksFisher->completedRows) {
+            calcRange(JenksFisher, 0, JenksFisher->bufferSize, 0, JenksFisher->bufferSize); // complexity: O(m*log(m))
+            
+            swapArrays(JenksFisher);
+            JenksFisher->classBreaksIndex += JenksFisher->bufferSize;
+        }
+    }
+}
+
+double getSSM2(const double *values, const double *counts, int start, int end)
+//double weighted_meanvar(const double *values, const double *counts, int start, int end)
+{
+	double w_sum = 0, w_sum2 = 0, S = 0;
+	double mean = 0, mean_old = 0;
+
+	printf("start: %i end: %i\n", start, end);
+	if (start == end) {
+		mean = values[start];
+		S = 0.0;
+		return 0.0;
+	}
+
+	int i;
+	for (i = start; i <= end; i++) {
+		w_sum = w_sum + counts[i];
+		w_sum2 = w_sum2 + counts[i] * counts[i];
+
+		mean_old = mean;
+		mean = mean_old + (counts[i] / w_sum) * (values[i] - mean_old);
+		S = S + counts[i] * (values[i] - mean_old) * (values[i] - mean);
+		//printf("value: %f (%f)\n", values[i], counts[i]);
+
+	}
+	double population_variance = S / w_sum;
+	double sample_variance = S / (w_sum  - 1);
+	double sample_reliability_variance = S / (w_sum - w_sum2 / w_sum);
+
+	return population_variance;
+}
+
+// values is sorted stb_uniqueue values
+// counts is weight of the values
+// k number of breaks
+// m number of stb_uniqueue values (= length array)
+// return breaksArray 
+double *ClassifyJenksFisherFromValueCountPairs(const double *values, const double *counts, size_t m, size_t k)
+{
+	double *breaksArray = NULL;
+	struct Jenks *JenksFisher; // Helper struct
+	size_t nbreaks = k;
+	breaksArray = calloc(k, sizeof(double)); // The array holding the final results
+
+	assert(k <= m); // PRECONDITION
+
+	if (!k) {
+		fprintf(stderr, "Need to have at least 1 class\n");
+		return NULL;
+	}
+
+	// initialize struct
+	JenksFisher = Init_JenksFisher(values, counts, m, k);
+
+	if (k > 1) {
+		calcAll(JenksFisher);
+
+		size_t lastClassBreakIndex = findMaxBreakIndex(JenksFisher, JenksFisher->bufferSize - 1, 0, JenksFisher->bufferSize);
+
+		while (--k) {
+			breaksArray[k] = values[lastClassBreakIndex+k];
+			assert(lastClassBreakIndex < JenksFisher->bufferSize);
+			if (k > 1) {
+				JenksFisher->classBreaksIndex -= JenksFisher->bufferSize;
+				lastClassBreakIndex = JenksFisher->classBreaks[JenksFisher->classBreaksIndex + lastClassBreakIndex];
+			}
+		}
+		assert(JenksFisher->classBreaksIndex == JenksFisher->classBreaks[0]);
+	}
+
+	breaksArray[0] = values[0]; // break for the first class is the minimum of the dataset.
+
+	// the goodness of variance fit (GVF) is calculated. GVF is defined as (SDAM - SDCM) / SDAM. GVF ranges from 0 (worst fit) to 1 (perfect fit).
+	int start = 0;
+	int end = 0;
+	double ssm = 0.0;
+	int n , i;
+	for (n = 1; n < nbreaks; n++) {
+		for (i = start; i < m; ++i) {
+			if (values[i] < breaksArray[n]) {
+				continue;
+			} else {
+				end = i - 1;
+				break;
+			}
+		}
+		ssm += getSSM2(values, counts, start, end);
+		++end;
+		start = end;
+	}
+	end = m - 1;
+	ssm += getSSM2(values, counts, start, end);
+
+	double ssa = getSSM2(values, counts, 0, end);
+	double gvf = (ssa - ssm)/ssa;
+	fprintf(stderr, "Fit: %f\n", gvf);
+	return breaksArray;
+}
+
+/**
+ * Main entry point for creation of Jenks-Fisher natural breaks.
+ * Port of Jenks/Fisher breaks originally created in C++ by Maarten Hilferink.
+ * @param values array of the values, do not need to be sorted.
+ * @param k number of breaks to create
+ * @param len length of values array
+ * @return Array with breaks
+ */
+double *stb_jenks(double *ivalues, int len, int k)
+{
+	// Make a copy of the input values
+	double *values = calloc(len, sizeof(double));
+	for (int i = 0; i < len; i++) {
+		values[i] = ivalues[i];
+	}
+
+	double *counts;
+	int unique_vals = stb_unique(values, &counts, points->rows);
+    double *breaks_array = NULL;
+    
+    breaks_array = ClassifyJenksFisherFromValueCountPairs(values, counts, unique_vals, k);
+    
+    free(values);
+    free(counts);
+
+    return breaks_array;
+}
 // int main(int argc, char *argv[])
 // {
 // 	STB_MAT *X = stb_matrix_from_file("x.train");
