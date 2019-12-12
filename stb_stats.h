@@ -78,6 +78,8 @@
 #define IS_ODD(n) (n & 1)
 #define IS_EVEN(n) !IS_ODD(n)
 
+#define CSV_QUOTE '\"'
+
 struct stb_hist {
 	int number_of_bins;
 	double bin_width;
@@ -489,7 +491,7 @@ STB_EXTERN void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, d
 /* Filter items in place and return list of unique numbers, their count and the number of unique numbers.
  * NOTE: if a separate list is desired, duplicate it before calling this function 
  */
-STB_EXTERN int stb_dunique(double *values, double **counts, double epsilon, int len);
+STB_EXTERN int stb_dunique(double *values, double **counts, int len);
 
 /**
  * Main entry point for creation of Jenks-Fisher natural breaks.
@@ -2789,7 +2791,7 @@ char **stb_parse_csv(const char *line, const char delim, int *nrfields)
 
 	// If we did not get a count for the number of fields determine it
 	if (!*nrfields) {
-		fieldcnt = cms_count_fields(line, delim);
+		fieldcnt = stb_count_fields(line, delim);
 		*nrfields = fieldcnt;
 	}
 
@@ -2890,12 +2892,12 @@ int stb_double_less(double a, double b, double epsilon)
     return (b - a) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
 }
 
-int dcmp(const void *a, const void *b, double epsilon)
+int dcmp(const void *a, const void *b)
 {
 #define _D(x) *(double*)x
-	if (stb_double_greater(_D(a), _D(b), epsilon)) {
+	if (stb_double_greater(_D(a), _D(b), EPSILON)) {
 		return 1;
-	} else if (stb_double_less(_D(a), _D(b), epsilon)) {
+	} else if (stb_double_less(_D(a), _D(b), EPSILON)) {
 		return -1;
 	} else {
 		return 0;
@@ -2919,7 +2921,7 @@ int icmp(const void *a, const void *b)
 /* Filter items in place and return list of unique numbers, their count and the tumber of unique numbers.
  * NOTE: if a separate list is desired, duplicate it before calling this function 
  */
-int stb_dunique(double *values, double **counts, double epsilon, int len)
+int stb_dunique(double *values, double **counts, int len)
 {
 	int i, j;
 	double count = 0;
@@ -2929,7 +2931,7 @@ int stb_dunique(double *values, double **counts, double epsilon, int len)
 	
 	tcounts[0] = 0;
 	for (i = j = 0; i < len; i++) {
-		if (dcmp(&values[j], &values[i], epsilon)) {
+		if (dcmp(&values[j], &values[i])) {
 			//printf("%f != %f %f\n", values[j], values[i], count);
 			values[++j] = values[i];
 			tcounts[j - 1] = count;
@@ -4207,7 +4209,7 @@ double *stb_jenks(double *ivalues, int len, int k)
 	}
 
 	double *counts;
-	int unique_vals = stb_unique(values, &counts, points->rows);
+	int unique_vals = stb_dunique(values, &counts, len);
     double *breaks_array = NULL;
     
     breaks_array = ClassifyJenksFisherFromValueCountPairs(values, counts, unique_vals, k);
