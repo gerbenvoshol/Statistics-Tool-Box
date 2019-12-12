@@ -375,6 +375,15 @@ STB_EXTERN char **stb_fgetlns(char *filename, size_t *number_of_lines);
 /* Dynamic allocation version of fgets(), capable of reading unlimited line lengths. */
 STB_EXTERN char *stb_fgetln(char **buf, int *n, FILE *fp);
 
+/*
+ *  Given a string containing no linebreaks, or containing line breaks
+ *  which are escaped by "double quotes", extract a NULL-terminated
+ *  array of strings, one for every cell in the row.
+ */
+STB_EXTERN char **stb_parse_csv(const char *line, const char delim, int *nrfields);
+STB_EXTERN int stb_count_fields(const char *line, const char delim);
+STB_EXTERN void stb_free_csv_line(char **parsed);
+
 /* Simple Matrix Function */
 
 /* Matrix structure */
@@ -475,6 +484,11 @@ STB_EXTERN void stb_logistic_regression_L2(STB_MAT *A, STB_MAT *Y, double **beta
  * NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
  */
 STB_EXTERN void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
+
+/* Filter items in place and return list of unique numbers, their count and the number of unique numbers.
+ * NOTE: if a separate list is desired, duplicate it before calling this function 
+ */
+STB_EXTERN int stb_dunique(double *values, double **counts, double epsilon, int len)
 
 #ifdef STB_STATS_DEFINE
 
@@ -2703,6 +2717,250 @@ char *stb_fgetln(char **buf, int *n, FILE *fp)
 
 		location = *n - 1;
 	}
+}
+
+void stb_free_csv_line(char **parsed)
+{
+	char **ptr;
+
+	for (ptr = parsed; *ptr; ptr++) {
+		free(*ptr);
+	}
+
+	free(parsed);
+}
+
+int stb_count_fields(const char *line, const char delim)
+{
+	const char *ptr;
+	int cnt, fQuote;
+
+	for (cnt = 1, fQuote = 0, ptr = line; *ptr; ptr++) {
+		if (fQuote) {
+			if (*ptr == CSV_QUOTE) {
+				if (ptr[1] == CSV_QUOTE) {
+					ptr++;
+					continue;
+				}
+				fQuote = 0;
+			}
+			continue;
+		}
+
+		if (*ptr == CSV_QUOTE) {
+			fQuote = 1;
+			continue;
+		} else if (*ptr == delim) {
+			cnt++;
+			continue;
+		} else {
+			continue;
+		}
+	}
+
+	if (fQuote) {
+		return -1;
+	}
+
+	return cnt;
+}
+
+/*
+ *  Given a string containing no linebreaks, or containing line breaks
+ *  which are escaped by "double quotes", extract a NULL-terminated
+ *  array of strings, one for every cell in the row.
+ */
+char **stb_parse_csv(const char *line, const char delim, int *nrfields)
+{
+	char **buf, **bptr, *tmp, *tptr;
+	const char *ptr;
+	int fieldcnt = 0, fQuote, fEnd;
+
+	// If we did not get a count for the number of fields determine it
+	if (!*nrfields) {
+		fieldcnt = cms_count_fields(line, delim);
+		*nrfields = fieldcnt;
+	}
+
+	if (fieldcnt == -1) {
+		fprintf(stderr, "No tokens found!\n");
+		return NULL;
+	}
+
+	buf = calloc((fieldcnt + 1), sizeof(char*));
+	if (!buf) {
+		return NULL;
+	}
+
+	tmp = calloc(strlen(line) + 1, sizeof(char));
+	if (!tmp) {
+		free(buf);
+		return NULL;
+	}
+
+	bptr = buf;
+	for (ptr = line, fQuote = 0, tptr = tmp, fEnd = 0; !fEnd; ptr++) {
+		if (fQuote) {
+			if (!*ptr) {
+				break;
+			}
+
+			if (*ptr == CSV_QUOTE) {
+				if (ptr[1] == CSV_QUOTE) {
+					*tptr++ = CSV_QUOTE;
+					ptr++;
+					continue;
+				}
+				fQuote = 0;
+			} else {
+				*tptr++ = *ptr;
+			}
+
+			continue;
+		}
+
+		if (*ptr == CSV_QUOTE) {
+			fQuote = 1;
+			continue;
+		} else if ((*ptr == '\0') || (*ptr == delim)) {
+			if (*ptr == '\0') {
+				fEnd = 1;
+			}
+			*tptr = '\0';
+			*bptr = strdup(tmp);
+			tptr = tmp;
+
+			if (!*bptr) {
+				for (bptr--; bptr >= buf; bptr--) {
+					free(*bptr);
+				}
+				free(buf);
+				free(tmp);
+
+				return NULL;
+			}
+
+			bptr++;
+
+			if (fEnd) {
+				break;
+			} else {
+				continue;
+			}
+		} else {
+			*tptr = *ptr;
+			tptr++;
+			continue;
+		}
+	}
+
+	*bptr = NULL;
+	free(tmp);
+	return buf;
+}
+
+int stb_double_almost_equal(double a, double b, double epsilon)
+{
+    return fabs(a - b) <= ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
+}
+
+int stb_double_equal(double a, double b, double epsilon)
+{
+    return fabs(a - b) <= ( (fabs(a) > fabs(b) ? fabs(b) : fabs(a)) * epsilon);
+}
+
+int stb_double_greater(double a, double b, double epsilon)
+{
+    return (a - b) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
+}
+
+int stb_double_less(double a, double b, double epsilon)
+{
+    return (b - a) > ( (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * epsilon);
+}
+
+int dcmp(const void *a, const void *b, double epsilon)
+{
+#define _D(x) *(double*)x
+	if (stb_double_greater(_D(a), _D(b), epsilon)) {
+		return 1;
+	} else if (stb_double_less(_D(a), _D(b), epsilon)) {
+		return -1;
+	} else {
+		return 0;
+	}
+#undef _D
+}
+
+int icmp(const void *a, const void *b)
+{
+#define _I(x) *(int*)x
+	if (_I(a) > _I(b)) {
+		return 1;
+	} else if (_I(a) < _I(b)) {
+		return -1;
+	} else {
+		return 0;
+	}
+#undef _I
+}
+
+/* Filter items in place and return list of unique numbers, their count and the tumber of unique numbers.
+ * NOTE: if a separate list is desired, duplicate it before calling this function 
+ */
+int stb_dunique(double *values, double **counts, double epsilon, int len)
+{
+	int i, j;
+	double count = 0;
+	double *tcounts = calloc(len, sizeof(double));
+
+	qsort(values, len, sizeof(double), dcmp);
+	
+	tcounts[0] = 0;
+	for (i = j = 0; i < len; i++) {
+		if (dcmp(&values[j], &values[i], epsilon)) {
+			//printf("%f != %f %f\n", values[j], values[i], count);
+			values[++j] = values[i];
+			tcounts[j - 1] = count;
+			count = 1;
+		} else {
+			count++;
+		}
+	}
+	tcounts[j] = count;
+
+	*counts = tcounts;
+
+	return j + 1;
+}
+
+/* Filter items in place and return list of unique numbers, their count and the tumber of unique numbers.
+ * NOTE: if a separate list is desired, duplicate it before calling this function 
+ */
+int stb_iunique(int *values, int **counts, int len)
+{
+	int i, j;
+	int count = 0;
+	int *tcounts = calloc(len, sizeof(int));
+
+	qsort(values, len, sizeof(int), icmp);
+	
+	tcounts[0] = 0;
+	for (i = j = 0; i < len; i++) {
+		if (icmp(&values[j], &values[i])) {
+			//printf("%f != %f %f\n", values[j], values[i], count);
+			values[++j] = values[i];
+			tcounts[j - 1] = count;
+			count = 1;
+		} else {
+			count++;
+		}
+	}
+	tcounts[j] = count;
+
+	*counts = tcounts;
+
+	return j + 1;
 }
 
 void stb_matrix_print(STB_MAT *matrix)
