@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.09 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.10 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+ 		1.10  stb_kendall (Kendall's Rank correlation)
  		1.09  stb_jenks Initial port of O(k×n×log(n)) Jenks-Fisher algorithm originally created by Maarten Hilferink
  		1.08  stb_logistic_regression_L2 simple L2-regularized logistic regression
  		1.07  stb_spearman (Spearman's Rank correlation)
@@ -210,6 +211,9 @@ STB_EXTERN double stb_sum(double *data, int n);
 
 /* Returns Spearman's Rank correlation of two vectors x and y, each of size n */
 STB_EXTERN double stb_spearman(double *x, double *y, int n);
+
+/* Returns Kendall's Rank correlation and the probability of two vectors x and y, each of size n */
+STB_EXTERN double stb_kendall(double *x, double *y, int n, double *tau, double *z, double *prob);
 
 /* Calculate the linear regression
  * y = ax + b
@@ -2013,6 +2017,52 @@ double stb_spearman(double *x, double *y, int n)
     return num/den; 
 } 
 
+/* Returns Kendall's Rank correlation and the probability of two vectors x and y, each of size n */
+double stb_kendall(double *x, double *y, int n, double *tau, double *z, double *prob)
+{
+	//double epsilon = 1e-6;
+	int i, j;
+	double yties = 0, xties = 0;
+	double numerator=0;
+	double dxdy, dx, dy;
+	double var;
+
+	for (i=0; i < n; i++){
+		for (j=(i+1); j < n; j++) { 
+			dx = x[i]- x[j];
+			dy = y[i]- y[j];
+			if (fabs(dx) < EPSILON) {
+				dx = 0;
+			}
+			if (fabs(dy) < EPSILON) {
+				dy = 0;
+			}
+			dxdy = dx*dy;
+
+			if (dxdy) { // Neither array has a tie.
+				yties++;
+				xties++;
+				dxdy > 0.0 ? numerator++ : numerator--;
+			} else { //One or both arrays have ties.
+				if(dy) yties++;	//an extra y event
+				if(dx) xties++;	//an extra x event
+			}
+		}
+	}
+
+	*tau = (double) numerator / (sqrt(yties) * sqrt(xties));
+	var = (double)(4.0 * n + 10.0) / (double)(9.0 * n * (n - 1.0));
+	*z = (*tau) / sqrt(var);
+
+	/* Note one sided so if testing for not equal multiply by 2! And a continuity correction is applied (0.5)*/
+	//*prob = 1 - stb_phi(fabs(*z) + 0.5);
+
+	/* two sided without continuity correction */
+	*prob = 2*(1 - stb_phi(fabs(*z)));
+
+	return *tau;
+}
+
 /* Calculate the liniear regression
  * x,y  = arrays of data
  * n = number of data points
@@ -2795,7 +2845,7 @@ char **stb_parse_csv(const char *line, const char delim, int *nrfields)
 		*nrfields = fieldcnt;
 	}
 
-	if (fieldcnt == -1) {
+	if (fieldcnt <= -1) {
 		fprintf(stderr, "No tokens found!\n");
 		return NULL;
 	}
