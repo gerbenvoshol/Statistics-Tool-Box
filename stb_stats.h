@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.10 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.11 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,8 @@
  ============================================================================
 
  Version History
+ 		1.11  stb_cdf_gumbel, stb_pdf_gumbel, stb_icdf_gumbel and stb_est_gumbel, the (inverse) cumulative/probability 
+ 		      density functions for the gumbel distribution and the ML estimator of the gumbel parameters
  		1.10  stb_kendall (Kendall's Rank correlation)
  		1.09  stb_jenks Initial port of O(k×n×log(n)) Jenks-Fisher algorithm originally created by Maarten Hilferink
  		1.08  stb_logistic_regression_L2 simple L2-regularized logistic regression
@@ -214,6 +216,18 @@ STB_EXTERN double stb_spearman(double *x, double *y, int n);
 
 /* Returns Kendall's Rank correlation and the probability of two vectors x and y, each of size n */
 STB_EXTERN double stb_kendall(double *x, double *y, int n, double *tau, double *z, double *prob);
+
+// PDF
+STB_EXTERN void stb_pdf_gumbel(double x, double mu, double sig, double *p);
+
+// CDF
+STB_EXTERN void stb_cdf_gumbel(double x, double mu, double sig, double *p);
+
+// inverse CDF a.k.a quantile function
+STB_EXTERN double stb_icdf_gumbel(double mu, double sig, double p);
+
+/* Fit the Gumbel distribution using maximum likelihood estimation (MLE) */
+STB_EXTERN void stb_est_gumbel(double *data, int n, double *mu, double *sig);
 
 /* Calculate the linear regression
  * y = ax + b
@@ -731,6 +745,87 @@ long double stb_incbeta(double a, double b, double x)
 		 */
 		return 1.0 - stb_incbeta(b, a, 1.0 - x);
 	}
+}
+
+// PDF
+void stb_pdf_gumbel(double x, double mu, double sig, double *p)
+{
+	*p = 1 / sig * exp(- (x - mu) / sig) * exp(-exp(- (x - mu) / sig));
+}
+
+// CDF
+void stb_cdf_gumbel(double x, double mu, double sig, double *p)
+{
+	*p = exp(-exp(- (x - mu) / sig));
+}
+
+// inverse CDF a.k.a quantile function
+double stb_icdf_gumbel(double mu, double sig, double p)
+{
+	return mu - sig * log( -log(p));
+}
+
+/* Fit the Gumbel distribution using maximum likelihood estimation (MLE)
+	//Usage example:
+	double test[53] = {312,590,248,670,365,770,465,545,315,115,232,260,655,675,
+	                   455,1020,700,570,853,395,926,99,680,121,976,916,921,191,
+	                   187,377,128,582,744,710,520,672,645,655,918,512,255,1126,
+	                   1386,1394,600,950,731,700,1407,1284,165,1496,809};
+
+	//estimate mean and var
+	stb_est_gumbel(test, 53, &mu, &sig);
+	// Use the estimate parameters to determine the probability of location 430
+	stb_pdf_gumbel(430, mu, sig, &p);
+
+	Depending on the epsilon used the values should be similar to the ones below 
+	mu ~471
+	s  ~298
+*/ 
+void stb_est_gumbel(double *data, int n, double *mu, double *sig)
+{
+	double m = 0.0, s = 0.0;
+	double mean, var;
+	stbs_meanvar(data, n, &mean, &var);
+
+	double threshold = EPSILON;
+
+	double ll_old = 0.0;
+	m = mean;
+	s = var;
+	for (;;) {
+		// Estimate m and s
+		double s_num = 0.0, s_denom = 0.0;
+		for (int i = 0; i < n; i++) {
+			s_num += data[i] * exp(- data[i] / s);
+			s_denom += exp(- data[i] / s);
+		}
+		s = mean - s_num / s_denom;
+		double m_sum = 0.0;
+		for (int i = 0; i < n; i++) {
+			m_sum += exp(- data[i] / s);
+		}
+		m = -s  * log( (1.0 / (double) n) * m_sum);
+
+		// Log likelihood
+		double ll_sum1 = 0.0, ll_sum2 = 0.0;
+		for (int i = 0; i < n; i++) {
+			ll_sum1 += ((data[i] - m) / s);
+			ll_sum2 += exp(-((data[i] - m) / s));
+		}
+		double ll_new = -n * log(s) - ll_sum1 - ll_sum2;
+		if (ll_old) {
+			if (fabs(ll_old - ll_new) < threshold) {
+				break;
+			}
+			//printf("delta: %lf\n", fabs(ll_old - ll_new));
+			ll_old = ll_new;
+		} else {
+			ll_old = ll_new;
+		}
+	}
+
+	*mu = m;
+	*sig = s;
 }
 
 /* This function computes the cumulative distribution functions P(x)for the t-distribution with degrees_of_freedom degrees of freedom */
