@@ -18,6 +18,12 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_cdf_gumbel, stb_pdf_gumbel, stb_icdf_gumbel and stb_est_gumbel, the (inverse) cumulative/probability 
+ 		      density functions for the gumbel distribution and the ML estimator of the gumbel parameters
+* stb_kendall (Kendall's Rank correlation)
+* stb_jenks Initial port of O(k×n×log(n)) Jenks-Fisher algorithm originally created by Maarten Hilferink
+* stb_logistic_regression_L2 simple L2-regularized logistic regression
+* stb_spearman (Spearman's Rank correlation)
 * stb_invert_matrix, stb_transpose_matrix, stb_matrix_multiply, ..., stb_multi_linear_regression and stb_multi_logistic_regression 
 * stb_ksample_anderson_darling, stb_2sample_anderson_darling, (one sample) stb_anderson_darling
 * stb_expfit (Exponential fitting), stb_polyfit (Polynomial fitting), stb_powfit (Power curve fitting), stb_linfit (Liniear fitting)
@@ -42,5 +48,5 @@ CITATION
 
 If you use this Tool-Box in a publication, please reference:
 
-Voshol, G.P. (2019). STB: A simple Statistics Tool Box (Version 1.06) [Software]. 
+Voshol, G.P. (2019). STB: A simple Statistics Tool Box (Version 1.11) [Software]. 
 Available from https://github.com/gerbenvoshol/Statistics-Tool-Box
