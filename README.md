@@ -18,6 +18,7 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_qsort (Quicksort), could be used to replace current sorting method
 * stb_cdf_gumbel, stb_pdf_gumbel, stb_icdf_gumbel and stb_est_gumbel, the (inverse) cumulative/probability 
  		      density functions for the gumbel distribution and the ML estimator of the gumbel parameters
 * stb_kendall (Kendall's Rank correlation)
