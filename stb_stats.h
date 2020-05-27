@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.11 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.12 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+ 		1.12  stb_qsort (Quicksort), could be used to replace current sorting method
  		1.11  stb_cdf_gumbel, stb_pdf_gumbel, stb_icdf_gumbel and stb_est_gumbel, the (inverse) cumulative/probability 
  		      density functions for the gumbel distribution and the ML estimator of the gumbel parameters
  		1.10  stb_kendall (Kendall's Rank correlation)
@@ -49,7 +50,7 @@
  CREDITS
  Jacob Wells (Gamma functions, Public domain), John D. Cook (Phi function, Public domain),
  David Blackman and Sebastiano Vigna (xoshiro512**, Public Domain), Sean T. Barrett (stb.h, Public Domain)
- Manas Sharma (Polynomial fitting, Public domain)
+ Manas Sharma (Polynomial fitting, Public domain), Remi Dufour for the initial QuickSORT implementation (Public domain)
 
  Written by Gerben Voshol.
 */
@@ -64,6 +65,7 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
+#include <limits.h>
 
 #ifdef __cplusplus
 #define STB_EXTERN   extern "C"
@@ -82,6 +84,215 @@
 #define IS_EVEN(n) !IS_ODD(n)
 
 #define CSV_QUOTE '\"'
+
+/* Insertion sort threshold shift
+ *
+ * This macro defines the threshold shift (power of 2) at which the insertion
+ * sort algorithm replaces the Quicksort.  A zero threshold shift disables the
+ * insertion sort completely.
+ *
+ * The value is optimized for Linux and MacOS on the Intel x86 platform.
+ */
+#ifndef STB_INSERTION_SORT_THRESHOLD_SHIFT
+# if defined (__APPLE__) && defined (__MACH__)
+#  define STB_INSERTION_SORT_THRESHOLD_SHIFT (0)
+# else
+#  define STB_INSERTION_SORT_THRESHOLD_SHIFT (2)
+# endif
+#endif
+
+/* Macro STB_DEFAULT_SWAP and STB_SWAP
+ *
+ * Swaps the elements of two arrays.
+ *
+ * The length of the swap is determined by the value of "SIZE".  While both
+ * arrays can't overlap, the case in which both pointers are the same works.
+ */
+#define STB_DEFAULT_SWAP(A,B,SIZE)               \
+    do {                                             \
+        register char       *a_byte = A;             \
+        register char       *b_byte = B;             \
+        register const char *a_end = a_byte + SIZE;  \
+                                                     \
+        while (a_byte < a_end)                       \
+        {                                            \
+            register const char swap_byte = *b_byte; \
+            *b_byte++ = *a_byte;                     \
+            *a_byte++ = swap_byte;                   \
+        }                                            \
+    } while (0)
+
+#ifndef STB_SWAP
+#define STB_SWAP(A,B,SIZE) DEFAULT_SWAP(A, B, SIZE)
+#endif
+
+/* Performs a recursion to the left */
+#define STB_RECURSE_LEFT             \
+    if (left < store - size)             \
+    {                                    \
+        (++recursion)->left = left;      \
+        recursion->right = store - size; \
+    }
+
+/* Performs a recursion to the right */
+#define STB_RECURSE_RIGHT               \
+    if (store + size < right)               \
+    {                                       \
+        (++recursion)->left = store + size; \
+        recursion->right = right;           \
+    }
+
+/* Insertion sort inner-loop */
+#define STB_INSERTION_SORT_LOOP(LEFT)                         \
+    {                                                             \
+        register char *trail = index - size;                      \
+        while (trail >= LEFT && compare(trail, trail + size) > 0) \
+        {                                                         \
+            STB_SWAP(trail, trail+size, size);                        \
+            trail -= size;                                        \
+        }                                                         \
+    }
+
+/* Performs insertion sort left of the pivot */
+#define STB_INSERTION_STB_SORT_LEFT                \
+    for (index = left + size; index < store; index +=size) \
+        STB_INSERTION_SORT_LOOP(left)
+
+/* Performs insertion sort right of the pivot */
+#define STB_INSERTION_STB_SORT_RIGHT                        \
+    for (index = store + (size << 1); index <= right; index +=size) \
+        STB_INSERTION_SORT_LOOP(store + size)
+
+/* Sorts to the left */
+#if STB_INSERTION_SORT_THRESHOLD_SHIFT == 0
+# define STB_SORT_LEFT STB_RECURSE_LEFT
+#else
+# define STB_SORT_LEFT                   \
+    if (store - left <= threshold)           \
+    {                                        \
+        STB_INSERTION_STB_SORT_LEFT  \
+    }                                        \
+    else                                     \
+    {                                        \
+        STB_RECURSE_LEFT                 \
+    }
+#endif
+
+/* Sorts to the right */
+#if STB_INSERTION_SORT_THRESHOLD_SHIFT == 0
+# define STB_SORT_RIGHT STB_RECURSE_RIGHT
+#else
+# define STB_SORT_RIGHT                  \
+    if (right - store <= threshold)          \
+    {                                        \
+        STB_INSERTION_STB_SORT_RIGHT \
+    }                                        \
+    else                                     \
+    {                                        \
+        STB_RECURSE_RIGHT                \
+    }
+#endif
+
+/* Function stb_qsort (Public Domain QuickSORT)
+ *
+ * This function performs a basic Quicksort.  This implementation is the
+ * in-place version of the algorithm and is done in he following way:
+ *
+ * 1. In the middle of the array, we determine a pivot that we temporarily swap
+ *    to the end.
+ * 2. From the beginning to the end of the array, we swap any elements smaller
+ *    than this pivot to the start, adjacent to other elements that were
+ *    already moved.
+ * 3. We swap the pivot next to these smaller elements.
+ * 4. For both sub-arrays on sides of the pivot, we repeat this process
+ *    recursively.
+ * 5. For a sub-array smaller than a certain threshold, the insertion sort
+ *    algorithm takes over.
+ *
+ * As an optimization, rather than performing a real recursion, we keep a
+ * global stack to track boundaries for each recursion level.
+ *
+ * To ensure that at most O(log2 N) space is used, we recurse into the smaller
+ * partition first.  The log2 of the highest unsigned value of an integer type
+ * is the number of bits needed to store that integer.
+ */
+#define stb_qsort(A, L, S, C)                                             \
+do {                                                                      \
+    void *array = A;                                                      \
+    size_t length = L;                                                    \
+    size_t size = S;                                                      \
+    int(*compare)(const void *, const void *) = C;                        \
+                                                                          \
+    /* Recursive stacks for array boundaries (both inclusive) */          \
+    struct stackframe                                                     \
+    {                                                                     \
+        void *left;                                                       \
+        void *right;                                                      \
+    } stack[CHAR_BIT * sizeof(void *)];                                   \
+                                                                          \
+    /* Recursion level */                                                 \
+    struct stackframe *recursion = stack;                                 \
+                                                                          \
+    /* Insertion sort threshold */                                        \
+    const int threshold = size << STB_INSERTION_SORT_THRESHOLD_SHIFT;     \
+                                                                          \
+    /* Assign the first recursion level of the sorting */                 \
+    recursion->left = array;                                              \
+    recursion->right = (char *)array + size * (length - 1);               \
+                                                                          \
+    do                                                                    \
+    {                                                                     \
+        /* Partition the array */                                         \
+        register char *index = recursion->left;                           \
+        register char *right = recursion->right;                          \
+        char          *left  = index;                                     \
+                                                                          \
+        /* Assigning store to the left */                                 \
+        register char *store = index;                                     \
+                                                                          \
+        /* Pop the stack */                                               \
+        --recursion;                                                      \
+                                                                          \
+        /* Determine a pivot (in the middle) and move it to the end */    \
+        const size_t middle = (right - left) >> 1;                        \
+        STB_SWAP(left + middle - middle % size,right,size);           \
+                                                                          \
+        /* From left to right */                                          \
+        while (index < right)                                             \
+        {                                                                 \
+            /* If item is smaller than pivot */                           \
+            if (compare(right, index) > 0)                                \
+            {                                                             \
+                /* Swap item and store */                                 \
+                STB_SWAP(index,store,size);                           \
+                                                                          \
+                /* We increment store */                                  \
+                store += size;                                            \
+            }                                                             \
+                                                                          \
+            index += size;                                                \
+        }                                                                 \
+                                                                          \
+        /* Move the pivot to its final place */                           \
+        STB_SWAP(right,store,size);                                   \
+                                                                          \
+        /* Recurse into the smaller partition first */                    \
+        if (store - left < right - store)                                 \
+        {                                                                 \
+            /* Left side is smaller */                                    \
+            STB_SORT_RIGHT                                            \
+            STB_SORT_LEFT                                             \
+                                                                          \
+            continue;                                                     \
+        }                                                                 \
+                                                                          \
+        /* Right side is smaller */                                       \
+        STB_SORT_LEFT                                                 \
+        STB_SORT_RIGHT                                                \
+                                                                          \
+    }                                                                     \
+    while (recursion >= stack);                                           \
+} while (0)
 
 struct stb_hist {
 	int number_of_bins;
