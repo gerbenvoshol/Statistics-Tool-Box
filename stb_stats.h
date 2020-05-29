@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.13  stb_kmeans k-means++ classical data clustering
  		1.12  stb_qsort (Quicksort), could be used to replace current sorting method
  		1.11  stb_cdf_gumbel, stb_pdf_gumbel, stb_icdf_gumbel and stb_est_gumbel, the (inverse) cumulative/probability 
  		      density functions for the gumbel distribution and the ML estimator of the gumbel parameters
@@ -50,7 +51,8 @@
  CREDITS
  Jacob Wells (Gamma functions, Public domain), John D. Cook (Phi function, Public domain),
  David Blackman and Sebastiano Vigna (xoshiro512**, Public Domain), Sean T. Barrett (stb.h, Public Domain)
- Manas Sharma (Polynomial fitting, Public domain), Remi Dufour for the initial QuickSORT implementation (Public domain)
+ Manas Sharma (Polynomial fitting, Public domain), Remi Dufour for the initial QuickSORT implementation (Public domain),
+ Andy Allinger (k-means, Public domain)
 
  Written by Gerben Voshol.
 */
@@ -66,6 +68,7 @@
 #include <math.h>
 #include <assert.h>
 #include <limits.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 #define STB_EXTERN   extern "C"
@@ -996,7 +999,7 @@ void stb_est_gumbel(double *data, int n, double *mu, double *sig)
 {
 	double m = 0.0, s = 0.0;
 	double mean, var;
-	stbs_meanvar(data, n, &mean, &var);
+	stb_meanvar(data, n, &mean, &var);
 
 	double threshold = EPSILON;
 
