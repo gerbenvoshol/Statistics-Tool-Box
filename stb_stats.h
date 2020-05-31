@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.14  stb_csm (confidence sequence method) for monte-carlo simulations
         1.13  stb_kmeans k-means++ classical data clustering
  		1.12  stb_qsort (Quicksort), could be used to replace current sorting method
  		1.11  stb_cdf_gumbel, stb_pdf_gumbel, stb_icdf_gumbel and stb_est_gumbel, the (inverse) cumulative/probability 
@@ -126,7 +127,7 @@
     } while (0)
 
 #ifndef STB_SWAP
-#define STB_SWAP(A,B,SIZE) DEFAULT_SWAP(A, B, SIZE)
+#define STB_SWAP(A,B,SIZE) STB_DEFAULT_SWAP(A, B, SIZE)
 #endif
 
 /* Performs a recursion to the left */
@@ -589,6 +590,19 @@ STB_EXTERN uint64_t stb_spcg32(uint64_t seed);
 /* stb_pcg32_bounded returns a uniformly distributed integer, r, in the range [0, n). */
 STB_EXTERN uint32_t stb_pcg32_bounded(uint64_t *s, uint32_t n);
 
+/**
+ * Confidence Sequence Method.
+ *
+ * See "A simple method for implementing Monte Carlo tests,"
+ * Ding, Gandy, and Hahn, 2017 (https://arxiv.org/abs/1611.01675).
+ *
+ * Given n trials and s successes, can we conclude that the success rate
+ * differs from alpha with exp(log_eps) false positive rate?
+ *
+ * Output the current log confidence level in OUT_log_level if non-NULL.
+ */
+STB_EXTERN int stb_csm(uint64_t n, double alpha, uint64_t s, double log_eps, double *OUT_log_level);
+
 /* returns the number of combinations of t out of n and returns a matrix (2d array) of them
  * uses Knuth Algorithm T (section 2.7.1.3 from The Art of Computer Programming)
  */
@@ -725,6 +739,11 @@ STB_EXTERN void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, d
  */
 STB_EXTERN int stb_dunique(double *values, double **counts, int len);
 
+/* Filter items in place and return list of unique numbers, their count and the tumber of unique numbers.
+ * NOTE: if a separate list is desired, duplicate it before calling this function 
+ */
+STB_EXTERN int stb_iunique(int *values, int **counts, int len);
+
 /**
  * Main entry point for creation of Jenks-Fisher natural breaks.
  * Port of Jenks/Fisher breaks originally created in C++ by Maarten Hilferink.
@@ -734,6 +753,25 @@ STB_EXTERN int stb_dunique(double *values, double **counts, int len);
  * @return Array with breaks
  */
 STB_EXTERN double *stb_jenks(double *values, int len, int k);
+
+/* calculate the euclidean distance between two points */
+STB_EXTERN double stb_euclidean_distance(const double *a, const double *b, const int size);
+
+/* Most of the time, this is sufficient and slightly faster calculate the sqr euclidean distance between two points */
+STB_EXTERN double stb_euclidean_distance_sqr(const double *a, const double *b, const int size);
+
+/* K-Means++ data clustering
+ * x[n][d] = the data points
+ * n       = Number of points
+ * d       = Dimension of the data (e.g. color, weight, etc.) 
+ * k       = # clusters
+*  c[k][d] = Center points of clusters
+*  z[n]    = What cluster a point is in
+*  wss[k]  = The within-cluster sum of square of each cluster (optional)
+*
+* Note: This algorithm does not scale very well to a large number of points, consider using k-Means||
+*/
+void stb_kmeans(double **x, int n, int d, int k, double ***cret, int **zret, double **wssret);
 
 #ifdef STB_STATS_DEFINE
 
@@ -2028,7 +2066,7 @@ void stb_gtest_matrix(double **observed, double **expected, int rows, int column
 /* This function returns the min , q1, q2, q3 and max values according to https://en.wikipedia.org/wiki/Quartile */
 void stb_quartiles(double *data, int n, double *min, double *q1, double *median, double *q3, double *max)
 {
-	if (n < 4) {
+	if (n < 3) {
 		fprintf(stderr, "Need at least 3 elements\n");
 		exit(1);
 	}
@@ -2077,7 +2115,7 @@ void stb_quartiles(double *data, int n, double *min, double *q1, double *median,
 		 * The lower quartile value is the median of the lower half of the data. The upper quartile value is the median of the upper half of the data.
 		 */
 		int split = n / 2;
-		*median = (sorted_data[split - 1] + data[split]) / 2;
+		*median = (sorted_data[split - 1] + sorted_data[split]) / 2;
 
 		int middle = floor(split / 2);
 
@@ -2820,6 +2858,78 @@ uint32_t stb_pcg32_bounded(uint64_t *s, uint32_t n)
 
 		return r % n;
 	}
+}
+
+/* -log(sqrt(2*pi)) */
+#define MINUS_LOG_SQRT_2PI (-0.9189385332046727)
+
+/* Robbins’s factorial approximation given n trials and a successes 
+ * see: https://pvk.ca/Blog/2018/07/06/testing-slo-type-properties-with-the-confidence-sequence-method/
+ */
+double stb_robbins(uint64_t n, uint64_t a)
+{
+    /* Simple cases no/all succes*/
+    if (a == 0 || a == n) {
+        return 0.0;
+    }
+
+    /* almost all/no succes */
+    if (a == 1 || a == n - 1) {
+        return log(n);
+    }
+
+    /*Robbin;s factorial approximation */
+    uint64_t b = n - a;
+    double values[7] = {
+        MINUS_LOG_SQRT_2PI,
+        (n + 0.5) * log(n),
+        //-n,
+        1.0 / (12 * n),
+        -(a + 0.5) * log(a),
+        //a,
+        -1.0 / (12 * a + 1),
+        -(b + 0.5) * log(b),
+        //b,
+        -1.0 / (12 * b + 1)
+    };
+    // -n + a + b = 0
+
+    return stb_sum(values, 7);
+}
+
+/**
+ * Confidence Sequence Method.
+ *
+ * See: https://pvk.ca/Blog/2018/07/06/testing-slo-type-properties-with-the-confidence-sequence-method/
+ * 
+ * And
+ *
+ * See "A simple method for implementing Monte Carlo tests,"
+ * Ding, Gandy, and Hahn, 2017 (https://arxiv.org/abs/1611.01675).
+ *
+ * Given n trials and a successes, can we conclude that the success rate
+ * differs from alpha with exp(log_eps) false positive rate?
+ *
+ * Output the current log confidence level in OUT_log_level if non-NULL and
+ * returns 1 if confidence is high enough to conclude that with n trails and a successes
+ * the e-value is sufficientely robust
+ */
+int stb_csm(uint64_t n, double alpha, uint64_t a, double log_eps, double *OUT_log_level)
+{
+    uint64_t b = n - a;
+    double values[4] = {
+        log(n + 1),
+        stb_robbins(n, a),
+        a * log(alpha),
+        b * log1p(-alpha)
+    };
+    double log_level = stb_sum(values, 4);
+
+    if (OUT_log_level != NULL) {
+        *OUT_log_level = log_level;
+    }
+
+    return log_level < log_eps;
 }
 
 /* Allocates a matrix of rowsize*colsize with a single call to malloc, so
@@ -3997,15 +4107,26 @@ double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, doub
 	return loglikelihood;
 }
 
-double euclidian_dist(const double *v1, const double *v2, const int size) {
-    double sum = 0.0;
+double stb_euclidean_distance(const double *a, const double *b, const int size)
+{
+    double dist = 0.0;
 
-    for (size_t i=0; i<size; ++i) {
-        double minus = v1[i] - v2[i];
-        sum += (minus * minus);
+    for (int i = 0; i < size; i++) {
+        dist += stb_sqr(a[i] - b[i]);
     }
 
-    return sqrt(sum);
+    return sqrt(dist);
+}
+
+double stb_euclidean_distance_sqr(const double *a, const double *b, const int size)
+{
+    double dist = 0.0;
+
+    for (int i = 0; i < size; i++) {
+        dist += stb_sqr(a[i] - b[i]);
+    }
+
+    return dist;
 }
 
 double sigmoid(double x) {
@@ -4068,7 +4189,7 @@ void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zva
             beta_new[k] = beta_old[k] + epsilon * gradient;
         }
 
-        double dist = euclidian_dist(beta_new, beta_old, A->columns);
+        double dist = stb_euclidean_distance(beta_new, beta_old, A->columns);
         if (dist < delta && iter > 2) {
             break;
         } else {
@@ -4175,7 +4296,7 @@ void stb_logistic_regression_L2(STB_MAT *A, STB_MAT *Y, double **beta, double **
             beta_new[k] = beta_old[k] + epsilon * gradient - epsilon * cost * beta_old[k];
         }
 
-        double dist = euclidian_dist(beta_new, beta_old, A->columns);
+        double dist = stb_euclidean_distance(beta_new, beta_old, A->columns);
         if (dist < delta && iter > 2) {
             break;
         } else {
@@ -4478,8 +4599,8 @@ double getSSM2(const double *values, const double *counts, int start, int end)
 
 	}
 	double population_variance = S / w_sum;
-	double sample_variance = S / (w_sum  - 1);
-	double sample_reliability_variance = S / (w_sum - w_sum2 / w_sum);
+	//double sample_variance = S / (w_sum  - 1);
+	//double sample_reliability_variance = S / (w_sum - w_sum2 / w_sum);
 
 	return population_variance;
 }
@@ -4655,6 +4776,181 @@ double *stb_jenks(double *ivalues, int len, int k)
 
 // 	return 0;
 // }
+
+/* K-Means++ data clustering
+ * x[n][d] = the data points
+ * n       = Number of points
+ * d       = Dimension of the data (e.g. color, weight, etc.) 
+ * k       = # clusters
+*  c[k][d] = Center points of clusters
+*  z[n]    = What cluster a point is in
+*  wss[k]  = The within-cluster sum of square of each cluster (optional)
+*
+* Note: This algorithm does not scale very well to a large number of points, consider using k-Means||
+*/
+void stb_kmeans(double **x, int n, int d, int k, double ***cret, int **zret, double **wssret)
+{
+    /* Local variables */
+    double *work = malloc(n * sizeof(double));
+    int *z = calloc(n, sizeof(int));
+    *zret = z;
+    double **c = (double **) stb_allocmat(k, d, sizeof(double));
+    *cret = c;
+    int h, i, j, l;
+    int current_center, chosen_center, closest_center;
+    double u, dist;
+    double total_dist, best_dist;
+    bool change;
+
+    /* Init the random number generator */
+    uint64_t seed;
+    seed = stb_spcg32(time(NULL));
+    
+    /* constants */
+    const int ITER = 1000000;
+    const double BIG = 1e33f;
+
+    /* Begin. */
+    if (k < 1 || k > n) {
+        fprintf(stderr, "The value of %i for k is out of bounds and should be between 1 and %i!\n", k, n);
+        exit(1);
+    }
+
+    /* Clear initial centers */
+    for (i = 0; i < n; ++i) {
+        work[i] = 1e33f;
+    }
+    
+    /* The inital center is choosen randomly */
+    chosen_center = stb_pcg32_bounded(&seed, n);
+    for (i = 0; i < d; ++i) {
+        c[0][i] = x[chosen_center][i];     /* copy */
+    }
+    
+    /* initialize other centers */
+    for (current_center = 1; current_center < k; ++current_center) {        
+        total_dist = 0.f;
+
+        /* measure from each point */
+        for (i = 0; i < n; ++i) {            
+            best_dist = work[i];
+
+            /* Squared Euclidean distance to prior center */
+            dist = stb_euclidean_distance_sqr(x[i], c[current_center - 1], d);
+
+            /* shortest squared distance? */
+            if (dist < best_dist) {
+                best_dist = dist;
+            }
+
+            work[i] = best_dist;
+
+            /* cumulative squared distance */
+            total_dist += best_dist;
+        } /* next data point */
+
+        /* Choose center with probability proportional to its squared distance from existing centers. */
+        u = stb_uint32_to_double(stb_pcg32(&seed));
+        /* uniform at random over cumulative distance */
+        u *= total_dist;                     
+        total_dist = 0.f;
+        for (i = 0; i < n; ++i) {
+            chosen_center = i;
+            total_dist += work[i];
+            if (total_dist > u) {
+                break;
+            }
+        } /* next i */
+
+        for (j = 0; j < d; ++j) {
+            c[current_center][j] = x[chosen_center][j];        /* assign center */
+        }
+    } /* next center to initialize */
+
+    /* Main loop */
+    for (h = 0; h < ITER; ++h) {
+        change = false;
+
+        /* Find nearest center for each point */
+        for (i = 0; i < n; ++i) {
+            current_center = z[i];
+            closest_center = 0;
+            best_dist = BIG;
+            for (l = 0; l < k; ++l) {
+                dist = stb_euclidean_distance_sqr(x[i], c[l], d);
+
+                if (dist < best_dist) {
+                    best_dist = dist;
+                    closest_center = l;
+                }
+            }
+
+            if (current_center != closest_center) {
+                /* reassign point */
+                z[i] = closest_center;         
+                change = true;
+            }
+        }
+
+        /* There are no more changes: Success!!! */
+        if (!change) {
+            break;
+        }
+
+        /* Find cluster centers */
+        
+        /* zero population */
+        for (l = 0; l < k; ++l) {
+            work[l] = 0.f;   
+        }
+
+         /* zero centers */
+        for (j = 0; j < k; ++j) {       
+            for (l = 0; l < d; ++l) {
+                c[j][l] = 0.f;
+            }
+        }
+
+        for (i = 0; i < n; ++i) {
+            current_center = z[i];
+            work[current_center] += 1.f;             /* count */
+            for (j = 0; j < d; ++j) {
+                c[current_center][j] += x[i][j];    /* add */
+            }
+        }
+        
+        for (current_center = 0; current_center < k; ++current_center) {
+            /* empty cluster?*/
+            if (work[current_center] < .5f) {
+                fprintf(stderr, "Something strange happened. We have an empty cluster\n");
+                exit(1);
+            }
+
+            u = 1.f / work[current_center];
+            for (j = 0; j < d; ++j) {
+                c[current_center][j] *= u; /* multiplication is faster than division*/
+            }
+        }
+    } /* next h */
+
+    /* Optionally compute the within-cluster sum of squares for each cluster. */
+    if (wssret) {
+        double *wss = calloc(k, sizeof(double));
+        *wssret = wss;
+
+        for (i = 0; i < n; ++i) {
+            current_center = z[i];
+            for (j = 0; j < d; ++j) {
+                wss[current_center] += stb_sqr(x[i][j] - c[current_center][j]);;
+            }
+        }
+    }
+
+    if (h == ITER) {
+        fprintf(stderr, "Not enough iterations! Did not converge\n");
+        exit(1);
+    }
+}
 
 #endif //STB_STATS_DEFINE
 #endif //STB__STATS__H
