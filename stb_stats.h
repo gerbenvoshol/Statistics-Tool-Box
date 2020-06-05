@@ -70,6 +70,7 @@
 #include <assert.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <float.h>
 
 #ifdef __cplusplus
 #define STB_EXTERN   extern "C"
@@ -771,7 +772,60 @@ STB_EXTERN double stb_euclidean_distance_sqr(const double *a, const double *b, c
 *
 * Note: This algorithm does not scale very well to a large number of points, consider using k-Means||
 */
-void stb_kmeans(double **x, int n, int d, int k, double ***cret, int **zret, double **wssret);
+STB_EXTERN void stb_kmeans(double **x, int n, int d, int k, double ***cret, int **zret, double **wssret);
+
+/* Compute eigenvalues and eigenvectors of a symmetric matrix
+ * a[n][n] = The matrix
+ * n       = Order of a
+ * w[n]    = Eigenvalues
+ * z[n][n] = Eigenvectors
+ */
+STB_EXTERN int stb_eigenv (double **a, int n, double **wret, double ***zret);
+
+/* This function returns the median */
+STB_EXTERN double stb_median(double *data, int n);
+
+/* stb_pca Principal Component Analysis
+ * x[n][p]    = Data matrix
+ * nx[n][p]   = 1 if data exists this point, 0 otherwise (optional (no missing data), can be NULL)
+ * n          = Number of objects
+ * p          = Variables each object
+ * weights[p] = Weight of each variable (optional, can be NULL)
+ * eret[p]    = Eigenvalues of covariance matrix
+ * vret[p]    = Eigenvectors of covariance matrix
+ * rret[n][m] = Projected data
+ * m          = # of dimensions to project
+ * level      = Level of robustness:
+ *      -1 => flimsy statistics, Chebyshev codeviation
+ *       0 => regular statistics, covariance matrix
+ *       1 => semi-robust statistics, Manahattan codeviation
+ *       2 => robust statistics, comedian matrix
+ */
+STB_EXTERN void stb_pca(double **x, int n, int p, int **nx, double *weights, int m, int level, double **eret, double ***vret, double ***rret);
+
+/* Arrange the N elements of data in random order. */
+STB_EXTERN void stb_shuffle(void *data, size_t n, size_t size, uint64_t *seed);
+
+/* returns a with n non-repeating random integers in [0,high). This 
+ * is useful when n is small, but the range of numbers is big. Otherwise
+ * it might be best to use stb_shuffle
+ */
+STB_EXTERN int *stb_unique_random(int n, int high, uint64_t *seed);
+
+/* stb_neugas, a data neural gas clustering algorithm
+ * See: www.demogng.de/JavaPaper/node16.html
+ *
+ * x[n][p] = Data Matrix
+ * n       = Number of objects
+ * p       = Measurements per object
+ * k       = Number of clusters
+ * c[k][p] = Cluster centers
+ * z[n]    = What cluster a point is in (optional)
+ * wss[k]  = The within-cluster sum of square of each cluster (optional only possible in combination with z!)
+ *
+ * Note: Neural gas was developed with a focus on learning a representation of the data space, rather than partitioning a data set
+ */
+STB_EXTERN void stb_neugas(double **x, int n, int p, int k, double ***cret, int **zret, double **wssret);
 
 #ifdef STB_STATS_DEFINE
 
@@ -1161,7 +1215,7 @@ double stb_cdf_gamma(double a, double b, double x, int upper)
 	return upper ? probability : 1 - probability;
 }
 
-/* Given  an  array  of data (length n), this routine  returns  its  mean and standard  deviation standard_dev calculated using the Welford’s method. */
+/* Given  an  array  of data (length n), this routine  returns  its  mean and standard  deviation standard_dev (optional can be NULL) calculated using the Welford’s method. */
 void stb_meanvar(double *data, int n, double *mean, double *sample_variance)
 {
 	int i;
@@ -1183,7 +1237,9 @@ void stb_meanvar(double *data, int n, double *mean, double *sample_variance)
 	}
 
 	/* We could also return (population_variance = sq_sum / n) instead */
-	*sample_variance = sq_sum / (n - 1);
+	if (sample_variance) {
+        *sample_variance = sq_sum / (n - 1);
+    }
 }
 
 /* Given  two arrays  of data (length n1 and n2), this routine  returns  its  t value and its significance (p) as probabiilty
@@ -2115,7 +2171,7 @@ void stb_quartiles(double *data, int n, double *min, double *q1, double *median,
 		 * The lower quartile value is the median of the lower half of the data. The upper quartile value is the median of the upper half of the data.
 		 */
 		int split = n / 2;
-		*median = (sorted_data[split - 1] + sorted_data[split]) / 2;
+		*median = (sorted_data[split - 1] + sorted_data[split]) / 2.0;
 
 		int middle = floor(split / 2);
 
@@ -4951,6 +5007,848 @@ void stb_kmeans(double **x, int n, int d, int k, double ***cret, int **zret, dou
         exit(1);
     }
 }
+
+/*----------------------------------------------------------------------
+  TRED2
+  DATE WRITTEN   760101   (YYMMDD)
+  REVISION DATE  830518   (YYMMDD)
+  CATEGORY NO.  D4C1B1
+  AUTHOR  Smith, B. T., et al.
+  PURPOSE  Reduce real symmetric matrix to symmetric tridiagonal
+           matrix using and accumulating orthogonal transformation
+  DESCRIPTION
+
+    This subroutine is a translation of the ALGOL procedure TRED2,
+    NUM. MATH. 11, 181-195(1968) by Martin, Reinsch, and Wilkinson.
+    Handbook for Auto. Comp., Vol.II-Linear Algebra, 212-226(1971).
+
+    This subroutine reduces a REAL SYMMETRIC matrix to a
+    symmetric tridiagonal matrix using and accumulating
+    orthogonal similarity transformations.
+
+    On Input
+
+       N is the order of the matrix.
+
+       A contains the real symmetric input matrix.  Only the
+         lower triangle of the matrix need be supplied.
+
+    On Output
+
+       D contains the diagonal elements of the tridiagonal matrix.
+
+       E contains the subdiagonal elements of the tridiagonal
+         matrix in its last N-1 positions.  E(0) is set to zero.
+
+       Z contains the orthogonal transformation matrix
+         produced in the reduction.
+
+       A and Z may coincide.  If distinct, A is unaltered.
+
+    Questions and comments should be directed to B. S. Garbow,
+    Applied Mathematics Division, Argonne National Laboratory
+    ------------------------------------------------------------------
+  REFERENCES  B. T. Smith, J. M. Boyle, J. J. Dongarra, B. S. Garbow,
+                Y. Ikebe, V. C. Klema, C. B. Moler, *Matrix Eigen-
+                system Routines - EISPACK Guide*, Springer-Verlag,
+                1976.
+  ROUTINES CALLED  (NONE)
+----------------------------------------------------------------------- */
+void tred2 (double **a, int n, double *d, double *e, double **z)
+{
+/* Local variables */
+    double f, g, h;
+    int i, j, k, l;
+    double hh;
+    int ii, jp1;
+    double scale;
+    double tmp;
+/* Function Body */
+    for (i = 0; i < n; ++i) {
+        for (j = 0; j <= i; ++j) {
+            z[i][j] = a[i][j];
+        }
+    }
+    if (1 == n) goto L320;
+/* .......... FOR I=N STEP -1 UNTIL 2 DO -- .......... */
+    for (ii = 2; ii <= n; ++ii) {
+        i = n + 2 - ii;
+        l = i - 1;
+        h = 0.f;
+        scale = 0.f;
+        if (l < 2) goto L130;
+/* .......... Scale row (ALGOL TOL then not needed) .......... */
+        for (k = 1; k <= l; ++k) scale += fabsf(z[i-1][k-1]);
+        if (scale != 0.f)  goto L140;
+L130:
+        e[i-1] = z[i-1][l-1];
+        goto L290;
+L140:
+        for (k = 1; k <= l; ++k) {
+            z[i-1][k-1] /= scale;
+            tmp = z[i-1][k-1];
+            h += tmp * tmp;
+        }
+        f = z[i-1][l-1];
+        g = -copysignf(sqrtf(h), f);
+        e[i-1] = scale * g;
+        h -= f * g;
+        z[i-1][l-1] = f - g;
+        f = 0.f;
+        for (j = 1; j <= l; ++j) {
+            z[j-1][i-1] = z[i-1][j-1] / h;
+            g = 0.f;
+/* .......... Form element of A*U .......... */
+            for (k = 1; k <= j; ++k) g += z[j-1][k-1] * z[i-1][k-1];
+            jp1 = j + 1;
+            if (l < jp1) goto L220;
+            for (k = jp1; k <= l; ++k) g += z[k-1][j-1] * z[i-1][k-1];
+/* .......... Form element of P .......... */
+L220:
+            e[j-1] = g / h;
+            f += e[j-1] * z[i-1][j-1];
+        }
+        hh = f / (h + h);
+/* .......... Form reduced A .......... */
+        for (j = 1; j <= l; ++j) {
+            f = z[i-1][j-1];
+            g = e[j-1] - hh * f;
+            e[j-1] = g;
+            for (k = 1; k <= j; ++k)
+                z[j-1][k-1] = z[j-1][k-1] - f * e[k-1] - g * z[i-1][k-1];
+        }
+L290:
+        d[i-1] = h;
+    }
+L320:
+    d[0] = 0.f;
+    e[0] = 0.f;
+/* .......... Accumulation of transformation matrices .......... */
+    for (i = 1; i <= n; ++i) {
+        l = i - 1;
+        if (0.f == d[i-1]) goto L380;
+        for (j = 1; j <= l; ++j) {
+            g = 0.f;
+            for (k = 1; k <= l; ++k) g += z[i-1][k-1] * z[k-1][j-1];
+            for (k = 1; k <= l; ++k) z[k-1][j-1] -= g * z[k-1][i-1];
+        }
+L380:
+        d[i-1] = z[i-1][i-1];
+        z[i-1][i-1] = 1.f;
+        if (l < 1) continue;
+        for (j = 1; j <= l; ++j) {
+            z[i-1][j-1] = 0.f;
+            z[j-1][i-1] = 0.f;
+        }
+    }
+    return;
+} /* end of tred2 */
+
+
+/*----------------------------------------------------------------------
+  TQL2
+  DATE WRITTEN   760101   (YYMMDD)
+  REVISION DATE  830518   (YYMMDD)
+  CATEGORY NO.  D4A5,D4C2A
+  AUTHOR  Smith, B. T., et al.
+  PURPOSE  Compute eigenvalues and eigenvectors of symmetric
+           tridiagonal matrix.
+  DESCRIPTION
+
+    This subroutine is a translation of the ALGOL procedure TQL2,
+    Num. Math. 11, 293-306(1968) by Bowdler, Martin, Reinsch, and
+    Wilkinson.
+    Handbook for Auto. Comp., Vol.II-Linear Algebra, 227-240(1971).
+
+    This subroutine finds the eigenvalues and eigenvectors
+    of a SYMMETRIC TRIDIAGONAL matrix by the QL method.
+    The eigenvectors of a FULL SYMMETRIC matrix can also
+    be found if  TRED2  has been used to reduce this
+    full matrix to tridiagonal form.
+
+    On Input
+
+       N is the order of the matrix.
+
+       D contains the diagonal elements of the input matrix.
+
+       E contains the subdiagonal elements of the input matrix
+         in its last N-1 positions.  E(0) is arbitrary.
+
+       Z contains the transformation matrix produced in the
+         reduction by  TRED2, if performed.  If the eigenvectors
+         of the tridiagonal matrix are desired, Z must contain
+         the identity matrix.
+
+     On Output
+
+       D contains the eigenvalues in ascending order.  If an
+         error exit is made, the eigenvalues are correct but
+         unordered for indices 1,2,...,IERR-1.
+
+       E has been destroyed.
+
+       Z contains orthonormal eigenvectors of the symmetric
+         tridiagonal (or full) matrix.  If an error exit is made,
+         Z contains the eigenvectors associated with the stored
+         eigenvalues.
+
+       Return value is set to
+         Zero       for normal return,
+         J          if the J-th eigenvalue has not been
+                    determined after 30 iterations.
+
+    Questions and comments should be directed to B. S. Garbow,
+    Applied Mathematics Division, Argonne National Laboratory
+    ------------------------------------------------------------------
+  REFERENCES  B. T. Smith, J. M. Boyle, J. J. Dongarra, B. S. Garbow,
+                Y. Ikebe, V. C. Klema, C. B. Moler, *Matrix Eigen-
+                system Routines - EISPACK Guide*, Springer-Verlag,
+                1976.
+----------------------------------------------------------------------*/
+int tql2 (int n, double *d, double *e, double **z)
+{
+/* Local variables */
+    double b, c, f, g, h;
+    int i, j, k, l, m;
+    double p, r, s, c2, c3;
+    int l1, l2;
+    double s2;
+    int ii;
+    double dl1, el1;
+    int mml;
+    double one;
+/* Function Body */
+    one = 1.f;
+    if (1 == n) return 0;
+    for (i = 2; i <= n; ++i) e[i-2] = e[i-1];
+    f = 0.f;
+    b = 0.f;
+    e[n-1] = 0.f;
+    s2 = 0.f;
+    c3 = 0.f;
+    for (l = 1; l <= n; ++l) {
+        j = 0;
+        h = fabsf(d[l-1]) + fabsf(e[l-1]);
+        if (b < h) b = h;
+/* .......... Look for small sub-diagonal element .......... */
+        for (m = l; m <= n; ++m) {
+            if (b + fabsf(e[m-1]) == b) break;
+/* .......... E(N) is always zero, so there is no exit */
+/*            through the bottom of the loop .......... */
+/* added 2011/06/13 AJA */
+            if (m > n) return -1;
+        }
+        if (m == l)  goto L220;
+L130:
+/* .......... Set error -- No convergence to an */
+/*            eigenvalue after 30 iterations .......... */
+        if (30 == j) return l;
+        ++j;
+/* .......... Form shift .......... */
+        l1 = l + 1;
+        l2 = l1 + 1;
+        g = d[l-1];
+        p = (d[l1-1] - g) / (e[l-1] * 2.f);
+        r = hypotf(p, one);
+        d[l-1] = e[l-1] / (p + copysignf(r, p));
+        d[l1-1] = e[l-1] * (p + copysignf(r, p));
+        dl1 = d[l1-1];
+        h = g - d[l-1];
+        if (l2 > n) goto L145;
+        for (i = l2; i <= n; ++i) d[i-1] -= h;
+L145:
+        f += h;
+/* .......... QL transformation .......... */
+        p = d[m-1];
+        c = 1.f;
+        c2 = c;
+        el1 = e[l1-1];
+        s = 0.f;
+        mml = m - l;
+/* .......... FOR I=M-1 STEP -1 UNTIL L DO -- .......... */
+        for (ii = 1; ii <= mml; ++ii) {
+            c3 = c2;
+            c2 = c;
+            s2 = s;
+            i = m - ii;
+            g = c * e[i-1];
+            h = c * p;
+            if (fabsf(p) < fabsf(e[i-1])) goto L150;
+            c = e[i-1] / p;
+            r = sqrtf(c * c + 1.f);
+            e[i] = s * p * r;
+            s = c / r;
+            c = 1.f / r;
+            goto L160;
+L150:
+            c = p / e[i-1];
+            r = sqrtf(c * c + 1.f);
+            e[i] = s * e[i-1] * r;
+            s = 1.f / r;
+            c *= s;
+L160:
+            p = c * d[i-1] - s * g;
+            d[i] = h + s * (c * g + s * d[i-1]);
+/* .......... Form vector .......... */
+            for (k = 1; k <= n; ++k) {
+                h = z[k-1][i];
+                z[k-1][i] = s * z[k-1][i-1] + c * h;
+                z[k-1][i-1] = c * z[k-1][i-1] - s * h;
+            }
+        }
+        p = -s * s2 * c3 * el1 * e[l-1] / dl1;
+        e[l-1] = s * p;
+        d[l-1] = c * p;
+        if (b + fabsf(e[l-1]) > b) goto L130;
+L220:
+        d[l-1] += f;
+    }
+/* .......... Order eigenvalues and eigenvectors .......... */
+    for (ii = 2; ii <= n; ++ii) {
+        i = ii - 1;
+        k = i;
+        p = d[i-1];
+        for (j = ii; j <= n; ++j) {
+            if (d[j-1] >= p) continue;
+            k = j;
+            p = d[j-1];
+        }
+        if (k == i) continue;
+        d[k-1] = d[i-1];
+        d[i-1] = p;
+        for (j = 1; j <= n; ++j) {
+            p = z[j-1][i-1];
+            z[j-1][i-1] = z[j-1][k-1];
+            z[j-1][k-1] = p;
+        }
+    }
+    return 0;
+} /* end of tql2 */
+
+/* Compute eigenvalues and eigenvectors of a symmetric matrix
+ * a[n][n] = The matrix
+ * n       = Order of a
+ * w[n]    = Eigenvalues
+ * z[n][n] = Eigenvectors
+ */
+int stb_eigenv (double **a, int n, double **wret, double ***zret)
+{
+/* Local variables */
+    int ierr;
+/* Function Body */
+    
+    /* contains the subdiagonal elements of the tridiagonal
+     * matrix in its last N-1 positions 
+     */
+    double *t = calloc(n, sizeof(double));
+    double *w = calloc(n, sizeof(double));
+    *wret = w;
+    double **z = (double **) stb_allocmat(n, n, sizeof(double));
+    *zret = z;
+    /* Reduce real symmetric matrix to symmetric tridiagonal
+     * matrix using and accumulating orthogonal transformation
+     */    
+    tred2 (a, n, w, t, z);
+
+    ierr = tql2(n, w, t, z);
+
+    free(t);
+    return ierr;
+} /* end of seigv */
+
+/* This function returns the median */
+double stb_median(double *data, int n)
+{
+    double median;
+
+    if (n < 3) {
+        fprintf(stderr, "Need at least 3 elements\n");
+        exit(1);
+    }
+
+    /* Copy the data */
+    double *sorted_data = (double *) calloc(n, sizeof(double));
+    for(int i = 0; i < n; i++) {
+        sorted_data[i] = data[i];
+    }
+
+    /* Sort it */
+// use the default swap function
+#undef STB_QSORT_SWAP
+#define STB_QSORT_SWAP(A,B,SIZE) STB_DEFAULT_SWAP(A, B, SIZE)
+    stb_qsort(sorted_data, n, sizeof(double), dcmp);
+
+    if (IS_ODD(n)) {
+        int split = (int) floor((double) n / 2.0);
+        median = sorted_data[split];
+        free(sorted_data);
+        return median;
+    } 
+
+
+    /* If there are an even number of data points in the original ordered data set, split this data set exactly in half.
+     * The lower quartile value is the median of the lower half of the data. The upper quartile value is the median of the upper half of the data.
+     */
+    int split = n / 2;
+    median = (sorted_data[split - 1] + sorted_data[split]) / 2.0;
+    free(sorted_data);
+    return median;
+}
+
+/* Check whether division will overflow */
+int stb_safdiv (double numer, double denom)
+{
+    int retval;
+
+    retval = fabs(denom) > fmax(0.f, fabs(numer / DBL_MAX));
+
+    return retval;
+} /* end of safdiv */
+
+/* stb_pca Principal Component Analysis
+ * x[n][p]    = Data matrix
+ * nx[n][p]   = 1 if data exists this point, 0 otherwise (optional (no missing data), can be NULL)
+ * n          = Number of objects
+ * p          = Variables each object
+ * weights[p] = Weight of each variable (optional, can be NULL)
+ * eret[p]    = Eigenvalues of covariance matrix
+ * vret[p]    = Eigenvectors of covariance matrix
+ * rret[n][m] = Projected data
+ * m          = # of dimensions to project
+ * level      = Level of robustness:
+ *      -1 => flimsy statistics, Chebyshev codeviation
+ *       0 => regular statistics, covariance matrix
+ *       1 => semi-robust statistics, Manahattan codeviation
+ *       2 => robust statistics, comedian matrix
+ */
+void stb_pca(double **x, int n, int p, int **nx, double *weights, int m, int level, double **eret, double ***vret, double ***rret)
+{
+/* Local variables */
+    int h, i, j, k, ifault;
+    double xj, xk;
+    double xdif, vall, rtot, vtot, xsum;
+
+    /* Averages each variable */
+    double *avg = calloc(p, sizeof(double));
+    /* arrays to hold intermediate values */
+    double *t = calloc(p, sizeof(double));
+    double *u = calloc(n, sizeof(double));
+
+    /* Eigenvalues and Eigenvectors of covariance matrix */
+    double *eval;
+    double **evec;
+    
+    /* Eigenvectors of covariance matrix */
+    double **var = (double **) stb_allocmat(p, p, sizeof(double));
+
+    /* Projected data */
+    double **r = (double **) stb_allocmat(n, m, sizeof(double));
+    *rret = r;
+
+/* Function Body */
+    if (m > p) {
+        fprintf(stderr, "Cannot reduce %i dimensions to %i\n", p, m);
+        exit(1);
+    }
+
+    if (level < -1 || level > 2) {
+        fprintf(stderr, "Invalid level %i! Should be between [-1,2] \n", level);
+        exit(1);
+    }
+
+    /* Calculate empirical mean along each column */
+    for (j = 0; j < p; ++j) {
+        h = 0;
+        for (i = 0; i < n; ++i) {
+            if (nx) {
+                if (nx[i][j] > 0) {
+                    u[h++] = x[i][j];
+                }
+            } else {
+                u[h++] = x[i][j];
+            }
+        }
+        if (h > 0) {
+            if (0 == level) {
+                rtot = stb_sum(u, h);
+                avg[j] = rtot / (double) h;
+            } else if (-1 == level) {
+                xj = u[0];
+                xk = u[0];
+                for (i = 1; i < h; ++i) {
+                    xj = fmin(xj, u[i]);
+                    xk = fmax(xk, u[i]);
+                }
+                avg[j] = (xj + xk) * .5f;
+            } else {
+                avg[j] = stb_median(u, h);
+            }
+        /* No values */
+        } else {
+            avg[j] = 0.f;
+        }
+    }
+
+    /*----------------------------------------------------------------------
+    Overall codeviation / covariance matrix.
+    A criterion for the orthogonality of two vectors u and v is that
+    the distance from u to v should equal the distance from u to -v.
+
+    Applying the Linfinity metric, this means that
+      max|u - v| = max|u - (-v)|
+      (1/2) (max|u + v| - max|u - v|) = 0
+
+    Applying the L2 metric, this means that
+      sum(u - v)^2 = sum(u - (-v))^2
+      sum(uv) = 0
+
+    Applying the L1 metric, this means that
+      sum|u - v| = sum|u - (-v)|
+      (1/2) sum(|u + v| - |u - v|) = 0
+
+    which is identical to the expression
+      max(min(u, v), min(-u, -v))
+
+    Thus, the L2 orthogonality criterion yields the formula for covariance,
+    and the L1 orthogonality criterion yields the formula for codeviation.
+    For more information on applications of L1 orthogonality, request the
+    technical report "A direct method for L1-norm codeviation" [2013] from
+      andy@13olive.net
+
+    The comedian matrix is a highly robust estimate of covariance
+    that is easy to compute.  Refer to:
+         Michael Falk
+         "On MAD and Comedians"
+         Ann. Inst. Statist. Math., v.49 n.4 pp.615-644, 1997
+
+    The Linfinity codeviation matrix generalizes the range.
+    The covariance matrix generalizes the variance.
+    The L1 codeviation matrix generalizes the mean absolute deviation.
+    The comedian matrix generalizes the median absolute deviation.
+
+    It should be acknowledged that there are many ways to handle the missing
+    data problem, many robust variants of the covariance matrix have been
+    proposed, and there are many ways to approximately factor a matrix.
+    ----------------------------------------------------------------------*/
+    /* Calculate the deviations from the mean */
+    for (k = 0; k < p; ++k) {
+        for (j = k; j < p; ++j) {
+            xsum = 0.f;
+            xdif = 0.f;
+            h = 0;
+            for (i = 0; i < n; ++i) {
+                if (nx) {
+                    if (nx[i][j] > 0 && nx[i][k] > 0) {
+                        if (weights) {
+                            xj = (x[i][j] - avg[j]) * weights[j];
+                            xk = (x[i][k] - avg[k]) * weights[k];
+                        } else {
+                            xj = (x[i][j] - avg[j]);
+                            xk = (x[i][k] - avg[k]);                            
+                        }
+                        if (-1 == level) {
+                            xsum = fmax(xsum, fabsf(xj + xk));
+                            xdif = fmax(xdif, fabsf(xj - xk));
+                        } else if (0 == level || 2 == level) {
+                            u[h] = xj * xk;
+                        } else {
+                            u[h] = fmax(fmin(xj, xk), fmin(-xj, -xk));
+                        }
+                        ++h;
+                    }
+                } else {
+                    if (weights) {
+                        xj = (x[i][j] - avg[j]) * weights[j];
+                        xk = (x[i][k] - avg[k]) * weights[k];
+                    } else {
+                        xj = (x[i][j] - avg[j]);
+                        xk = (x[i][k] - avg[k]);                        
+                    }
+                    if (-1 == level) {
+                        xsum = fmax(xsum, fabsf(xj + xk));
+                        xdif = fmax(xdif, fabsf(xj - xk));
+                    } else if (0 == level || 2 == level) {
+                        u[h] = xj * xk;
+                    } else {
+                        u[h] = fmax(fmin(xj, xk), fmin(-xj, -xk));
+                    }
+                    ++h;                    
+                }
+            }
+            if (-1 == level) {
+                var[j][k] = (xsum - xdif) * .5f;
+            } else if (0 == level || 1 == level) {
+                if (h > 1) {
+                    rtot = stb_sum(u, h);
+                    var[j][k] = rtot / (double) (h - 1);
+                } else {
+                    var[j][k] = 0.f;
+                }
+            } else {
+                if (h > 0) {
+                    var[j][k] = stb_median(u, h);
+                } else {
+                    var[j][k] = 0.f;
+                }
+            }
+        }
+    }
+
+/*----------------------------------------------------------------------
+         Factor covariance matrix
+----------------------------------------------------------------------*/
+    ifault = stb_eigenv(var, p, &eval, &evec);
+    if (ifault != 0) {
+        fprintf(stderr, "Error caluclating Eigenvalues and Eigenvectors\n");
+        exit(1);
+    }
+    /* Eigenvalues and Eigenvectors of covariance matrix */
+    *eret = eval;
+    *vret = evec;
+
+/*----------------------------------------------------------------------
+The singular value decomposition is X = U S V^T
+The symmetric eigenproblem is X^T X = V L V^T
+Step through columns of V in reverse order so that the first column
+of R has the greatest variance.
+----------------------------------------------------------------------*/
+/* R[i,k] = X[j,i] V[j,p-k+1] */
+    for (k = 0; k < m; ++k) {
+        for (j = 0; j < p; ++j) {
+            if (weights) {
+                t[j] = evec[j][p-k-1] * weights[j];
+            } else {
+                t[j] = evec[j][p-k-1];
+            }
+        }
+        vall = stb_sum(t, p);
+        for (i = 0; i < n; ++i) {
+            rtot = 0.f;
+            vtot = 0.f;
+            for (j = 0; j < p; ++j) {
+                if (nx) {
+                    if (nx[i][j] > 0) {
+                        rtot += (x[i][j] - avg[j]) * t[j];
+                        vtot += t[j];
+                    }
+                } else {
+                    rtot += (x[i][j] - avg[j]) * t[j];
+                    vtot += t[j];                    
+                }
+            }
+            r[i][k] = stb_safdiv(vall, vtot) ? rtot * (vall / vtot) : 0.f;
+        }
+    }
+
+    /* Clean */
+    free(var);
+    free(avg);
+    free(t);
+    free(u);
+} /* end of pca */
+
+#define CUSTOM_SWAP(A,B,SIZE)                        \
+    do {                                             \
+        char *a_byte = A;                            \
+        char *b_byte = B;                            \
+                                                     \
+        int idxA = ((double *)a_byte - dist);        \
+        int idxB = ((double *)b_byte - dist);        \
+                                                     \
+        double dtemp;                                \
+        dtemp = dist[idxA];                          \
+        dist[idxA] = dist[idxB];                     \
+        dist[idxB] = dtemp;                          \
+                                                     \
+        int itemp;                                   \
+        itemp = index[idxA];                         \
+        index[idxA] = index[idxB];                   \
+        index[idxB] = itemp;                         \
+                                                     \
+    } while (0)
+
+/* Arrange the N elements of data in random order. */
+void stb_shuffle(void *data, size_t n, size_t size, uint64_t *seed) {
+    char tmp[size];
+    char *arr = data;
+    size_t stride = size * sizeof(char);
+
+    if (n > 1) {
+        size_t i;
+        for (i = 0; i < n - 1; ++i) {
+            size_t j = i + stb_pcg32_bounded(seed, n - i + 1);
+
+            memcpy(tmp, arr + j * stride, size);
+            memcpy(arr + j * stride, arr + i * stride, size);
+            memcpy(arr + i * stride, tmp, size);
+        }
+    }
+}
+
+/* returns a with n non-repeating random integers in [0,high). This 
+ * is useful when n is small, but the range of numbers is big. Otherwise
+ * it might be best to use stb_shuffle
+ */
+int *stb_unique_random(int n, int high, uint64_t *seed) {
+    int i, j, duplicate;
+
+    int *a = calloc(n, sizeof(int));
+
+    for (i = 0; i < n; i++) {
+        do {
+            duplicate = 0;
+            a[i] = stb_pcg32_bounded(seed, high);
+            for (j = i - 1; j >= 0; j--) {
+                if (a[j] == a[i]) {
+                    duplicate = 1;
+                    break;
+                }
+            }
+        } while (duplicate);
+    }
+
+    return a;
+}
+
+/* stb_neugas, a data neural gas clustering algorithm
+ * See: www.demogng.de/JavaPaper/node16.html
+ *
+ * x[n][p] = Data Matrix
+ * n       = Number of objects
+ * p       = Measurements per object
+ * k       = Number of clusters
+ * c[k][p] = Cluster centers
+ * z[n]    = What cluster a point is in (optional)
+ * wss[k]  = The within-cluster sum of square of each cluster (optional only possible in combination with z!)
+ *
+ * Note: Neural gas was developed with a focus on learning a representation of the data space, rather than partitioning a data set
+ */
+void stb_neugas(double **x, int n, int p, int k, double ***cret, int **zret, double **wssret)
+{
+/* constants */
+    double lami = 10.f; /* range of adjustment, initial */
+    double lamf = 0.01f; /* range of adjustment, final */
+    double epsi = 0.3f; /* adjustment, initial */
+    double epsf = 0.005f; /* adjustment, final */
+    int tau = 40000; /* iterations */
+
+    if (k > n) {
+        fprintf(stderr, "Cannot make %i clusters with only %i data points\n", k, n);
+        exit(1);
+    }
+
+    double **c = (double **) stb_allocmat(k, p, sizeof(double));
+    *cret = c;
+
+    /* Distances to each center */
+    double *dist = calloc(k, sizeof(double));
+    /* Index array */
+    int *index = calloc(k, sizeof(int));
+
+    /* Local variables */
+    int h, i, j, l;
+    double r, y;
+    double eps, efact, lfact, lambda;
+    
+    /* Function Body */
+    lambda = lami;
+    eps = epsi;
+    lfact = pow( lamf / lami, 1.f / (double) (tau - 1) );
+    efact = pow( epsf / epsi, 1.f / (double) (tau - 1) );
+
+    /* Init the random number generator */
+    uint64_t seed;
+    seed = stb_spcg32(time(NULL));
+
+    /* The inital centers are choosen randomly but unique*/
+    int *chosen_centers = stb_unique_random(k, n, &seed);
+    for (j = 0; j < k; ++j) {
+        for (i = 0; i < p; ++i) {
+            c[j][i] = x[chosen_centers[j]][i];     /* copy */
+        }
+    }
+    free(chosen_centers);
+
+    /* main loop */
+    for (h = 0; h < tau; ++h) {
+        /* choose a datum at random */
+        r = stb_uint32_to_double(stb_pcg32(&seed));;
+        i = (int) (r * n);
+        if (i > (n - 1)) {
+            i = n - 1;
+        }
+        /* find distance to each center */
+        for (l = 0; l < k; ++l) {
+            dist[l] = stb_euclidean_distance_sqr(x[i], c[l], p);
+            index[l] = l;
+        }
+        /* sort distances */
+
+// use the swap function to co-sort a dependent array
+#undef STB_QSORT_SWAP
+#define STB_QSORT_SWAP(A,B,SIZE) CUSTOM_SWAP(A, B, SIZE)
+        stb_qsort(dist, k, sizeof(double), dcmp);
+
+        for (l = 0; l < k; ++l) { 
+            dist[(index[l] - 1)] = (double) l; /* rank */
+        }
+        /* adapt the cluster centers */
+        for (l = 0; l < k; ++l) {
+            y = eps * exp(-dist[l] / lambda);
+            for (j = 0; j < p; ++j) {
+                c[l][j] += y * (x[i][j] - c[l][j]);
+            }
+        }
+        /* adjust parameters */
+        lambda *= lfact;
+        eps *= efact;
+    }
+
+
+    /* Optionally find the nearest center for each point */
+    if (zret) {
+        int current_center, closest_center;
+        double curr_dist, best_dist;
+        int *z = calloc(n, sizeof(int));
+        *zret = z;
+        const double BIG = 1e33f;
+
+        /* Find nearest center for each point */
+        for (i = 0; i < n; ++i) {
+            current_center = z[i];
+            closest_center = 0;
+            best_dist = BIG;
+            for (l = 0; l < k; ++l) {
+                curr_dist = stb_euclidean_distance_sqr(x[i], c[l], p);
+
+                if (curr_dist < best_dist) {
+                    best_dist = curr_dist;
+                    closest_center = l;
+                }
+            }
+
+            if (current_center != closest_center) {
+                /* reassign point */
+                z[i] = closest_center;         
+            }
+        }
+
+        /* Optionally compute the within-cluster sum of squares for each cluster. */
+        if (wssret) {
+            double *wss = calloc(k, sizeof(double));
+            *wssret = wss;
+
+            for (i = 0; i < n; ++i) {
+                current_center = z[i];
+                for (j = 0; j < p; ++j) {
+                    wss[current_center] += stb_sqr(x[i][j] - c[current_center][j]);;
+                }
+            }
+        }
+    }
+    return;
+} /* end of neugas */
 
 #endif //STB_STATS_DEFINE
 #endif //STB__STATS__H
