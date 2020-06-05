@@ -18,6 +18,8 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_csm (confidence sequence method) for monte-carlo simulations
+* stb_kmeans k-means++ classical data clustering
 * stb_qsort (Quicksort), could be used to replace current sorting method
 * stb_cdf_gumbel, stb_pdf_gumbel, stb_icdf_gumbel and stb_est_gumbel, the (inverse) cumulative/probability 
  		      density functions for the gumbel distribution and the ML estimator of the gumbel parameters
