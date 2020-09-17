@@ -106,7 +106,7 @@
 # endif
 #endif
 
-/* Macro STB_DEFAULT_SWAP and STB_SWAP
+/* Macro STB_DEFAULT_SWAP and STB_QSORT_SWAP
  *
  * Swaps the elements of two arrays.
  *
@@ -127,8 +127,8 @@
         }                                            \
     } while (0)
 
-#ifndef STB_SWAP
-#define STB_SWAP(A,B,SIZE) STB_DEFAULT_SWAP(A, B, SIZE)
+#ifndef STB_QSORT_SWAP
+#define STB_QSORT_SWAP(A,B,SIZE) STB_DEFAULT_SWAP(A, B, SIZE)
 #endif
 
 /* Performs a recursion to the left */
@@ -153,7 +153,7 @@
         register char *trail = index - size;                      \
         while (trail >= LEFT && compare(trail, trail + size) > 0) \
         {                                                         \
-            STB_SWAP(trail, trail+size, size);                        \
+            STB_QSORT_SWAP(trail, trail+size, size);                        \
             trail -= size;                                        \
         }                                                         \
     }
@@ -260,7 +260,7 @@ do {                                                                      \
                                                                           \
         /* Determine a pivot (in the middle) and move it to the end */    \
         const size_t middle = (right - left) >> 1;                        \
-        STB_SWAP(left + middle - middle % size,right,size);           \
+        STB_QSORT_SWAP(left + middle - middle % size,right,size);           \
                                                                           \
         /* From left to right */                                          \
         while (index < right)                                             \
@@ -269,7 +269,7 @@ do {                                                                      \
             if (compare(right, index) > 0)                                \
             {                                                             \
                 /* Swap item and store */                                 \
-                STB_SWAP(index,store,size);                           \
+                STB_QSORT_SWAP(index,store,size);                           \
                                                                           \
                 /* We increment store */                                  \
                 store += size;                                            \
@@ -279,7 +279,7 @@ do {                                                                      \
         }                                                                 \
                                                                           \
         /* Move the pivot to its final place */                           \
-        STB_SWAP(right,store,size);                                   \
+        STB_QSORT_SWAP(right,store,size);                                   \
                                                                           \
         /* Recurse into the smaller partition first */                    \
         if (store - left < right - store)                                 \
