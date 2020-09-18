@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.12 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.17 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,9 @@
  ============================================================================
 
  Version History
+        1.17  stb_qnorm and stb_qnorm_matrix quantile normalization between columns without a reference
+        1.16  stb_neugas Neural gas clustering algorith
+        1.15  stb_pca Principal Component Analysis
         1.14  stb_csm (confidence sequence method) for monte-carlo simulations
         1.13  stb_kmeans k-means++ classical data clustering
  		1.12  stb_qsort (Quicksort), could be used to replace current sorting method
@@ -706,6 +709,38 @@ STB_EXTERN STB_MAT *stb_matrix_from_double(double **data, int rows, int columns)
  * 61	
  */
 STB_EXTERN STB_MAT *stb_matrix_from_file(char *filename);
+
+/* Perform quantile normalization between columns without a reference
+In statistics, quantile normalization is a technique for making two distributions identical in statistical properties.
+see: https://en.wikipedia.org/wiki/Quantile_normalization
+Arrays 1 to 3, genes A to D
+A    5    4    3
+B    2    1    4
+C    3    4    6
+D    4    2    8
+Converted to STB_MAT file test.mat:
+4 3
+5 4 3
+2 1 4
+3 4 6
+4 2 8
+
+will become:
+5.666667E+00 5.166667E+00 2.000000E+00 
+2.000000E+00 2.000000E+00 3.000000E+00 
+3.000000E+00 5.166667E+00 4.666667E+00 
+4.666667E+00 3.000000E+00 5.666667E+00
+
+statistics:
+Min.   :2.000   Min.   :2.000   Min.   :2.000  
+1st Qu.:2.750   1st Qu.:2.750   1st Qu.:2.750  
+Median :3.833   Median :4.083   Median :3.833  
+Mean   :3.833   Mean   :3.833   Mean   :3.833  
+3rd Qu.:4.917   3rd Qu.:5.167   3rd Qu.:4.917  
+Max.   :5.667   Max.   :5.167   Max.   :5.667  
+ */
+STB_EXTERN void stb_qnorm_matrix(STB_MAT *original);
+STB_EXTERN void stb_qnorm(double **data, int rows, int columns);
 
 /* Perform a simple linear regression and return a vector containing the Beta values, the T-test values 
  * and the corresponding P-values. The formula determined using the least squared method is:
@@ -3825,6 +3860,169 @@ STB_MAT *stb_matrix_from_file(char *filename)
 	fclose(fin);
 
 	return matrix;
+}
+
+
+#define QNORM_SWAP(A,B,SIZE)                        \
+    do {                                             \
+        char *a_byte = A;                            \
+        char *b_byte = B;                            \
+                                                     \
+        int idxA = ((double *)a_byte - values);        \
+        int idxB = ((double *)b_byte - values);        \
+                                                     \
+        double dtemp;                                \
+        dtemp = values[idxA];                          \
+        values[idxA] = values[idxB];                     \
+        values[idxB] = dtemp;                          \
+                                                     \
+        int itemp;                                   \
+        itemp = tmpidx[idxA];                         \
+        tmpidx[idxA] = tmpidx[idxB];                   \
+        tmpidx[idxB] = itemp;                         \
+                                                     \
+    } while (0)
+
+int stb_didx(double *values, int **idx, int **ranks, int **counts, int len)
+{
+        int current, prev, i;
+        double count = 0;
+        int *tmpcounts = calloc(len, sizeof(double));
+        int *tmpranks = calloc(len, sizeof(double));
+        int *tmpidx = calloc(len, sizeof(int));
+        for (i = 0; i < len; i++) {
+                // printf("%lf, %i\n", values[i], i);
+                tmpidx[i] = i;
+        }
+
+// use the swap function to co-sort a dependent array
+#undef STB_QSORT_SWAP
+#define STB_QSORT_SWAP(A,B,SIZE) QNORM_SWAP(A, B, SIZE)
+    stb_qsort(values, len, sizeof(double), dcmp);
+#undef STB_QSORT_SWAP
+
+        tmpcounts[0] = 0;
+        int curr_rank = 0;
+        tmpranks[0] = curr_rank;
+        tmpcounts[curr_rank]++;
+        for (current = 1, prev = 0; current < len; current++, prev++) {
+                if (dcmp(&values[prev], &values[current])) {
+                        // printf("curr_rank counts: %i\n", tmpcounts[curr_rank]);
+                        // printf("%lf != %lf\n", values[prev], values[current]);
+                        curr_rank += tmpcounts[curr_rank];
+                        tmpranks[current] = curr_rank;
+                        tmpcounts[curr_rank]++;
+                        // printf("curr_rank: %i\n", curr_rank);
+                } else {
+                        tmpcounts[curr_rank]++;
+                        tmpranks[current] = curr_rank;
+                }
+        }
+
+        *counts = tmpcounts;
+        *ranks = tmpranks;
+        *idx = tmpidx;
+
+        return tmpcounts[curr_rank] + 1;
+}
+
+/* Perform quantile normalization between columns without a reference
+In statistics, quantile normalization is a technique for making two distributions identical in statistical properties.
+see: https://en.wikipedia.org/wiki/Quantile_normalization
+Arrays 1 to 3, genes A to D
+A    5    4    3
+B    2    1    4
+C    3    4    6
+D    4    2    8
+Converted to STB_MAT file test.mat:
+4 3
+5 4 3
+2 1 4
+3 4 6
+4 2 8
+
+will become:
+5.666667E+00 5.166667E+00 2.000000E+00 
+2.000000E+00 2.000000E+00 3.000000E+00 
+3.000000E+00 5.166667E+00 4.666667E+00 
+4.666667E+00 3.000000E+00 5.666667E+00
+
+statistics:
+Min.   :2.000   Min.   :2.000   Min.   :2.000  
+1st Qu.:2.750   1st Qu.:2.750   1st Qu.:2.750  
+Median :3.833   Median :4.083   Median :3.833  
+Mean   :3.833   Mean   :3.833   Mean   :3.833  
+3rd Qu.:4.917   3rd Qu.:5.167   3rd Qu.:4.917  
+Max.   :5.667   Max.   :5.167   Max.   :5.667  
+ */
+void stb_qnorm_matrix(STB_MAT *original)
+{
+    STB_MAT *transposed = NULL;
+    stb_transpose_matrix(original, &transposed);
+
+    int **ranks = malloc(sizeof(int *) * original->rows);
+    int **counts = malloc(sizeof(int *) * original->rows);
+    int **idx = malloc(sizeof(int *) * original->rows);
+    /* For each row determine a rank from lowest to highest taking into consideration possible ties
+     * at the same time, we rearrange that first set of row values so each row is in order going lowest to highest value
+     */
+    for (int i = 0; i < transposed->rows; i++) {
+        stb_didx(transposed->data[i], &idx[i], &ranks[i], &counts[i], transposed->columns);
+    }
+
+    /* Now that everything is sorted, we find the mean for each row to determine the value of the ranks (this is for quantile normalization without reference,
+     * otherwise it is the reference value)
+     */
+    double *means = malloc(sizeof(double) * original->rows);
+    double var;
+    STB_MAT *sorted = NULL;
+    stb_transpose_matrix(transposed, &sorted);
+    stb_free_matrix(transposed);
+    for (int i = 0; i < sorted->rows; i++) {
+        stb_meanvar(sorted->data[i], sorted->columns, &means[i], &var);
+    }
+
+    stb_free_matrix(sorted);
+
+    // Now take the ranking order and substitute in new values at the original locations. 
+    for (int i = 0; i < original->columns; i++) {
+        for (int n = 0; n < original->rows; n++) {
+            // find the index in the original dataset
+            original->data[idx[i][n]][i] = 0.0;
+            //Note that when, values are tied in rank, they should instead be assigned the mean of the values.
+            for (int j = 0; j < counts[i][ranks[i][n]]; j++) {
+                original->data[idx[i][n]][i] += means[ranks[i][n] + j]; 
+            }
+            original->data[idx[i][n]][i] /=  (double) counts[i][ranks[i][n]];
+        }
+    }
+
+    // Cleanup
+    for (int i = 0; i < original->rows; i++) {
+        free(idx[i]);
+        free(ranks[i]);
+        free(counts[i]);
+    }
+    free(idx);
+    free(ranks);
+    free(counts);
+
+    free(means);
+}
+
+void stb_qnorm(double **data, int rows, int columns)
+{
+    // Transform data into STB_)MAT
+    STB_MAT *original = malloc(sizeof(STB_MAT));
+    original->data = data;
+    original->rows = rows;
+    original->columns = columns;
+
+    // Call the matrix qnorm function
+    stb_qnorm_matrix(original);
+
+    // Free the temproary STB_MAT struct
+    free(original);
 }
 
 /* Perform a simple linear regression and return a vector containing the Beta values, the T-test values 

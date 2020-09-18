@@ -18,6 +18,7 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_qnorm and stb_qnorm_matrix quantile normalization between columns without a reference
 * stb_neugas Neural gas clustering algorithm
 * stb_pca Principal Component Analysis
 * stb_csm (confident sequence method) for monte-carlo simulations
