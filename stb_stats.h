@@ -3894,6 +3894,11 @@ STB_MAT *stb_matrix_from_file(char *filename)
 
 	STB_MAT *matrix = NULL;
 	matrix = stb_new_matrix(rows, columns);
+    if (!matrix) {
+        fprintf(stderr, "Error creating matrix of %ix%i\n", rows, columns);
+        return NULL;
+    }
+
 	/* the rest of the lines are the matrix */
 	for (int i = 0; i < rows; i++) {
 		for (int n = 0; n < columns; n++) {
@@ -3903,7 +3908,6 @@ STB_MAT *stb_matrix_from_file(char *filename)
 
 	/* We are done, close the file */
 	fclose(fin);
-
 	return matrix;
 }
 
@@ -3936,8 +3940,8 @@ int stb_didx(double *values, int **idx, int **ranks, int **counts, int len)
         int *tmpranks = calloc(len, sizeof(double));
         int *tmpidx = calloc(len, sizeof(int));
         for (i = 0; i < len; i++) {
-                // printf("%lf, %i\n", values[i], i);
                 tmpidx[i] = i;
+                //printf("%lf, %i\n", values[i], tmpidx[i] );
         }
 
 // use the swap function to co-sort a dependent array
@@ -4005,9 +4009,10 @@ void stb_qnorm_matrix(STB_MAT *original)
     STB_MAT *transposed = NULL;
     stb_transpose_matrix(original, &transposed);
 
-    int **ranks = malloc(sizeof(int *) * original->rows);
-    int **counts = malloc(sizeof(int *) * original->rows);
-    int **idx = malloc(sizeof(int *) * original->rows);
+    int **ranks = malloc(sizeof(int *) * original->columns);
+    int **counts = malloc(sizeof(int *) * original->columns);
+    int **idx = malloc(sizeof(int *) * original->columns);
+
     /* For each row determine a rank from lowest to highest taking into consideration possible ties
      * at the same time, we rearrange that first set of row values so each row is in order going lowest to highest value
      */
@@ -4043,11 +4048,12 @@ void stb_qnorm_matrix(STB_MAT *original)
     }
 
     // Cleanup
-    for (int i = 0; i < original->rows; i++) {
+    for (int i = 0; i < original->columns; i++) {
         free(idx[i]);
         free(ranks[i]);
         free(counts[i]);
     }
+
     free(idx);
     free(ranks);
     free(counts);
@@ -4117,9 +4123,9 @@ void stb_qnorm_matrix_with_reference(STB_MAT *original, STB_MAT *reference)
     STB_MAT *transposed = NULL;
     stb_transpose_matrix(original, &transposed);
 
-    int **ranks = malloc(sizeof(int *) * original->rows);
-    int **counts = malloc(sizeof(int *) * original->rows);
-    int **idx = malloc(sizeof(int *) * original->rows);
+    int **ranks = malloc(sizeof(int *) * original->columns);
+    int **counts = malloc(sizeof(int *) * original->columns);
+    int **idx = malloc(sizeof(int *) * original->columns);
     /* For each row determine a rank from lowest to highest taking into consideration possible ties
      * at the same time, we rearrange that first set of row values so each row is in order going lowest to highest value
      */
@@ -4171,7 +4177,7 @@ void stb_qnorm_matrix_with_reference(STB_MAT *original, STB_MAT *reference)
     }
 
     // Cleanup
-    for (int i = 0; i < original->rows; i++) {
+    for (int i = 0; i < original->columns; i++) {
         free(idx[i]);
         free(ranks[i]);
         free(counts[i]);
