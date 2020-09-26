@@ -18,6 +18,7 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_polygamma, stb_trigamma_inverse gamme functions and stb_fit_f_dist for moment estimation of the scaled F-distribution
 * stb_qnorm and stb_qnorm_with_reference (also matrix variants) quantile normalization between columns with and without a reference
 * stb_neugas Neural gas clustering algorithm
 * stb_pca Principal Component Analysis

@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.18  stb_polygamma, stb_trigamma_inverse gamme functions and stb_fit_f_dist for moment estimation of the scaled F-distribution
         1.17  stb_qnorm and stb_qnorm_with_reference (also matrix variants) quantile normalization between columns with and without a reference
         1.16  stb_neugas Neural gas clustering algorith
         1.15  stb_pca Principal Component Analysis
@@ -907,10 +908,59 @@ STB_EXTERN int *stb_unique_random(int n, int high, uint64_t *seed);
  */
 STB_EXTERN void stb_neugas(double **x, int n, int p, int k, double ***cret, int **zret, double **wssret);
 
+static  double  horner[] = {1.6666666666666666e-01, 3.3333333333333333e-02,
+                         2.3809523809523809e-02, 3.3333333333333333e-02, 7.5757575757575757e-02,
+                         2.5311355311355311e-01, 1.1666666666666667e+00, 7.0921568627450980e+00,
+                         5.4971177944862155e+01, 5.2912424242424242e+02
+                      };
+
+#define EHORNER (9) /* the elements number of `horner[]` */
+
+const double stb_nan = 0.0/0.0;
+const double stb_pos_inf = 1.0 /0.0;
+const double stb_neg_inf = -1.0/0.0;
+
+/* stb_polygamma return the polygamma function {\psi}^k(x)
+ * of variable x If k=0,1,2,..., then returns digamma, trigamma,
+ * tetragamma,... function values respectively.
+ * Special cases:
+ *  polygamma(k, x) is NaN with signal if k < 0 or x < 0;
+ *  polygamma(k, x) is INF with signal if x = 0;
+ *  polygamma(k, +-Inf) is NaN with signal;
+ *  polygamma(k, NaN) is that NaN with no signal.
+ * k
+ * x
+ */
+STB_EXTERN double stb_polygamma(int k, double x);
+
+// Solve trigamma(y) = x for y
+// Newton's method
+// 1/trigamma(y) is convex, nearly linear and strictly > y-0.5,
+// so iteration to solve 1/x = 1/trigamma is monotonically convergent
+STB_EXTERN double stb_trigamma_inverse(double x);
+
+/* Moment estimation of the parameters of a scaled F-distribution (the prior) 
+ * The first degrees of freedom is given 
+ */
+STB_EXTERN void stb_fit_f_dist(double *var, int len, int df1, double *pvar, double *pdf2);
+
+STB_EXTERN double stb_incgamma(double S, double Z);
+
+STB_EXTERN long double stb_log_incgamma(long double S, long double Z);
+
+STB_EXTERN long double stb_gamma(double N);
+
+STB_EXTERN long double stb_beta(double a, double b);
+
+STB_EXTERN long double stb_log_gamma(double N);
+
+/* The normalized incomplete beta function. */
+STB_EXTERN long double stb_incbeta(double a, double b, double x);
+
 #ifdef STB_STATS_DEFINE
 
 /* The incomplete gamma function (Thanks Jacob Wells) */
-static double stb_incgamma(double S, double Z)
+double stb_incgamma(double S, double Z)
 {
 	if(Z < 0.0) {
 		return 0.0;
@@ -1131,6 +1181,205 @@ long double stb_incbeta(double a, double b, double x)
 		 */
 		return 1.0 - stb_incbeta(b, a, 1.0 - x);
 	}
+}
+
+/* stb_polygamma return the polygamma function {\psi}^k(x)
+ * of variable x If k=0,1,2,..., then returns digamma, trigamma,
+ * tetragamma,... function values respectively.
+ * Special cases:
+ *  polygamma(k, x) is NaN with signal if k < 0 or x < 0;
+ *  polygamma(k, x) is INF with signal if x = 0;
+ *  polygamma(k, +-Inf) is NaN with signal;
+ *  polygamma(k, NaN) is that NaN with no signal.
+ * k
+ * x
+ */
+double stb_polygamma(int k, double x)
+{
+    double  s;  /* return value */
+    double  y;  /* minimum value more than `large_value', adding `x' to integers */
+    double  x_sqr;  /* x * x */
+    double  fact_k; /* k! */
+    double  pow_x_k;    /* pow_x_k = pow(x, k+1)    */
+    double  large_value;    /* sufficient large value applied for asymptotic expansion */
+    double  f;
+    int n;  /* [large_value - x] */
+    int i, j;
+    int i2, isgn;
+
+    if (k < 0 || x < 0.0 || !finite(x)) {   /* k < 0 or x < 0 or x is neither infinite nor a "not-a-number" (NaN) */
+        /*
+         * DOMAIN error: polygamma(x) return NaN
+         */
+        return stb_nan;
+    } else if (k > 3) {
+        /*
+         * calculation of `large_value'
+         */
+        f = 1.0;
+        for (i = k + 19; i > 20; i--) {
+            f *= (double) i;
+        }
+        for (i = k + 1; i > 2; i--) {
+            f /= (double) i;
+        }
+        f *= (174611.0 / 55.0); /* B_{20} / B_{2} */
+        large_value = 6.812921 * pow(f, 1.0 / 18.0);
+        if (large_value < 13.06) {
+            large_value = 13.06;
+        }
+    } else {    /* 0 <= k <= 3 */
+        large_value = 13.06;
+    }
+
+    /* fact_k = k! */
+    fact_k = stb_factorial(k);
+
+    if (x == 0.0) {
+        /*
+         * SING error: polygamma(x) return infinity
+         */
+        return stb_pos_inf;
+    } else if (x >= large_value) {
+        /* Adopted `x' to the asymptotic expansion. */
+        s = 0.0;
+        x_sqr = stb_sqr(x);
+        isgn = k % 2 ? -1 : 1;
+        if (k == 0) {
+            /* digamma function */
+            for (i = EHORNER; i >= 0; i--) {
+                i2 = 2 * (i + 1);
+                s += horner[i] / (double) i2 * isgn;
+                s /= x_sqr;
+                isgn *= -1;
+            }
+            s += log(x) - 0.5 / x;
+        } else {
+            /* k >= 1; trigamm, tetragamma, ... */
+            for (i = EHORNER; i >= 0; i--) {
+                f = 1.0;
+                i2 = 2 * (i + 1);
+                j = i2 + k - 1;
+                while (j > i2) {
+                    f *= (double) j--;
+                }
+                s += horner[i] * f * isgn;
+                s /= x_sqr;
+                isgn *= -1;
+            }
+            for (i = 0; i < k; i++) {
+                s /= x;
+            }
+            pow_x_k = 1.0;
+            for (i = 0; i < k; i++) {
+                pow_x_k *= x;    /* pow_x_k = pow(x, k) */
+            }
+
+            s -= fact_k * 0.5 / pow_x_k / x * isgn;
+            f = fact_k / (double) k;
+            s -= f / pow_x_k * isgn;
+        }
+    } else {
+        /*
+         * x < large_value;
+         * Adopted `y' instead of `x' to the asymptotic expansion,
+         * we calculation the value.
+         */
+        n = (int)(large_value - x);
+        y = (double) n + x + 1.0;
+        s = stb_polygamma(k, y);
+        isgn = k % 2 ? 1 : -1;
+        for (i = 0; i <= n; i++) {
+            y -= 1.0;
+            if (fabs(y) < 1.e-3) {
+                if (x > 0) {
+                    y = x - (double)((int)(x + 0.5));
+                } else {
+                    y = x - (double)((int)(x - 0.5));
+                }
+            }
+            pow_x_k = 1.0;
+            for (j = 0; j < k; j++) {
+                pow_x_k *= y;    /* pow_x_k = pow(y, k) */
+            }
+            s += isgn *  fact_k / pow_x_k / y;
+        }
+    }
+    return (s);
+}
+
+
+// Solve trigamma(y) = x for y
+// Newton's method
+// 1/trigamma(y) is convex, nearly linear and strictly > y-0.5,
+// so iteration to solve 1/x = 1/trigamma is monotonically convergent
+double stb_trigamma_inverse(double x)
+{
+    double y = 0.5 + 1.0 / x;
+    int i = 0;
+    double tri, dif;
+    while(1) {
+        i++;
+        tri = stb_polygamma(1, y);
+        dif = tri * ( 1 - tri / x) / stb_polygamma(2, y);
+        y = y + dif;
+
+        if ((-dif / y) < 1e-8) {
+            break;
+        }
+
+        if (i > 50) {
+            printf("stb_trigamma_inverse: Iteration limit exceeded\n");
+            break;
+        }
+    }
+
+    return y;
+}
+
+/* Moment estimation of the parameters of a scaled F-distribution (the prior) 
+ * The first degrees of freedom is given 
+ */
+void stb_fit_f_dist(double *var, int len, int df1, double *pvar, double *pdf2)
+{
+    double median = stb_median(var, len);
+    // More than half of residual variances are exactly zero
+    if (stb_double_almost_equal(median, 0.0, 1e-5)) {
+        printf("More than half of residual variances are exactly zero\n");
+        median = 1.0;
+    }
+
+    // Zero sample variances will be offset
+    double *z = malloc(len * sizeof(double));
+    double *e = malloc(len * sizeof(double));
+    double c1 = stb_polygamma(0, df1 / 2.0);
+    double c2 = log(df1 / 2.0);
+    for (int i = 0; i < len; i++) {
+        // Better to work on with log(F)
+        z[i] = log(fmax(var[i], 1e-5 * median));
+        e[i] = z[i] - c1 + c2;
+    }
+
+    double tevar, evar, emean = 0.0;
+    stb_meanvar(e, len, &emean, &tevar);
+    double *etvar =  malloc(len * sizeof(double));
+    c1 = (double) len / (double) (len - 1);
+    c2 = stb_polygamma(1, df1 / 2.0);
+    for (int i = 0; i < len; i++) {
+        etvar[i] = c1 * stb_sqr(e[i] - emean) - c2;
+    }
+    stb_meanvar(etvar, len, &evar, &tevar);
+    if (evar > 0.0) {
+        *pdf2 = 2 * stb_trigamma_inverse(evar);
+        *pvar = exp(emean + stb_polygamma(0, *pdf2 / 2.0) - log(*pdf2 / 2.0));
+    } else {
+        *pdf2 = stb_pos_inf;
+        *pvar = exp(emean);
+    }
+
+    free(z);
+    free(e);
+    free(etvar);
 }
 
 // PDF
@@ -3585,7 +3834,7 @@ void stb_matrix_print(STB_MAT *matrix)
 {
 	for (int i = 0; i < matrix->rows; i++) {
 		for (int n = 0; n < matrix->columns; n++) {
-			printf("%E ", matrix->data[i][n]);
+			printf("%E\t", matrix->data[i][n]);
 		}
 		printf("\n");
 	}
