@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.17 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.19 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.19  stb_pdf_binom and stb_pdf_pois, the binomial and poison probability density functions
         1.18  stb_polygamma, stb_trigamma_inverse gamme functions and stb_fit_f_dist for moment estimation of the scaled F-distribution
         1.17  stb_qnorm and stb_qnorm_with_reference (also matrix variants) quantile normalization between columns with and without a reference
         1.16  stb_neugas Neural gas clustering algorith
@@ -957,6 +958,18 @@ STB_EXTERN long double stb_log_gamma(double N);
 /* The normalized incomplete beta function. */
 STB_EXTERN long double stb_incbeta(double a, double b, double x);
 
+/* The function dbinom returns the value of the probability density function (pdf) 
+ * of the binomial distribution given a certain random variable x, number of trials
+ * (size) and probability of success on each trial (prob) 
+ */
+STB_EXTERN double stb_pdf_binom(double x, double size, double prob);
+
+/* Returns the value of the Poisson probability density function. In other
+ * words, the dpois function finds the probability that a certain number 
+ * of successes (x) occur based on an average rate of success (lambda)
+ */
+STB_EXTERN double stb_pdf_pois(double x, double lambda);
+
 #ifdef STB_STATS_DEFINE
 
 /* The incomplete gamma function (Thanks Jacob Wells) */
@@ -1381,6 +1394,103 @@ void stb_fit_f_dist(double *var, int len, int df1, double *pvar, double *pdf2)
     free(e);
     free(etvar);
 }
+
+
+#define PI2 6.283185307179586476925286
+#define S0 0.083333333333333333333       /* 1/12 */
+#define S1 0.00277777777777777777778     /* 1/360 */
+#define S2 0.00079365079365079365079365  /* 1/1260 */
+#define S3 0.000595238095238095238095238 /* 1/1680 */
+#define S4 0.0008417508417508417508417508 /* 1/1188 */
+
+static double sfe[16] = {0, 0.081061466795327258219670264, 0.041340695955409294093822081, 0.0276779256849983391487892927,
+                         0.020790672103765093111522771, 0.0166446911898211921631948653, 0.013876128823070747998745727,
+                         0.0118967099458917700950557241, 0.010411265261972096497478567, 0.0092554621827127329177286366,
+                         0.008330563433362871256469318, 0.0075736754879518407949720242, 0.006942840107209529865664152,
+                         0.0064089941880042070684396310, 0.005951370112758847735624416, 0.00555473355196280137103868999
+                        };
+
+/* stirlerr(n) = log(n!) - log( sqrt(2*pi*n)*(n/e)^n ) */
+double stirlerr(double n)
+{
+    double nn;
+    if (n < 16) {
+        return (sfe[(int)n]);
+    }
+    nn = (double)n;
+    nn = nn * nn;
+    if (n > 500) {
+        return ((S0 - S1 / nn) / n);
+    }
+    if (n > 80) {
+        return ((S0 - (S1 - S2 / nn) / nn) / n);
+    }
+    if (n > 35) {
+        return ((S0 - (S1 - (S2 - S3 / nn) / nn) / nn) / n);
+    }
+    return ((S0 - (S1 - (S2 - (S3 - S4 / nn) / nn) / nn) / nn) / n);
+}
+
+/* Evaluate the deviance termbd0(x,np) = x log(x/np) + np - x*/
+double bd0(double x,double np)
+{
+    double ej, s, s1, v;
+    int j;
+    if (fabs(x - np) < 0.1 * (x + np)) {
+        s = (x - np) * (x - np) / (x + np);
+        v = (x - np) / (x + np);
+        ej = 2 * x * v;
+        for (j = 1; ; j++) {
+            ej *= v * v;
+            s1 = s + ej / (2 * j + 1);
+            if (s1 == s) {
+                return (s1);
+            }
+            s = s1;
+        }
+    }
+    return (x * log(x / np) + np - x);
+}
+
+/* The function dbinom returns the value of the probability density function (pdf) 
+ * of the binomial distribution given a certain random variable x, number of trials
+ * (size) and probability of success on each trial (prob) 
+ */
+double stb_pdf_binom(double x, double size, double prob)
+{
+    double lc;
+    if (prob == 0.0) {
+        return ((x == 0) ? 1.0 : 0.0);
+    }
+    if (prob == 1.0) {
+        return ((x == size) ? 1.0 : 0.0);
+    }
+    if (x == 0) {
+        return (exp(size * log(1 - prob)));
+    }
+    if (x == size) {
+        return (exp(size * log(prob)));
+    }
+    lc = stirlerr(size) - stirlerr(x) - stirlerr(size - x)
+         - bd0(x, size * prob) - bd0(size - x, size * (1.0 - prob));
+    return (exp(lc) * sqrt(size / (PI2 * x * (size - x))));
+}
+
+/* Returns the value of the Poisson probability density function. In other
+ * words, the dpois function finds the probability that a certain number 
+ * of successes (x) occur based on an average rate of success (lambda)
+ */
+double stb_pdf_pois(double x, double lambda)
+{
+    if (lambda == 0) {
+        return ((x == 0) ? 1.0 : 0.0);
+    }
+    if (x == 0) {
+        return (exp(-lambda));
+    }
+    return (exp(-stirlerr(x) - bd0(x, lambda)) / sqrt(PI2 * x));
+}
+
 
 // PDF
 void stb_pdf_gumbel(double x, double mu, double sig, double *p)
@@ -5996,9 +6106,13 @@ double stb_median(double *data, int n)
 {
     double median;
 
-    if (n < 3) {
-        fprintf(stderr, "Need at least 3 elements\n");
+    if (n < 2) {
+        fprintf(stderr, "Need at least 2 elements\n");
         exit(1);
+    }
+    
+    if (n == 2) {
+        return ((data[0] + data[1]) / 2.0);
     }
 
     /* Copy the data */
