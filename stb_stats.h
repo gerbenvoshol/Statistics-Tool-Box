@@ -76,6 +76,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <float.h>
+#include <time.h>
 
 #ifdef __cplusplus
 #define STB_EXTERN   extern "C"
@@ -595,6 +596,39 @@ STB_EXTERN uint64_t stb_spcg32(uint64_t seed);
 
 /* stb_pcg32_bounded returns a uniformly distributed integer, r, in the range [0, n). */
 STB_EXTERN uint32_t stb_pcg32_bounded(uint64_t *s, uint32_t n);
+
+STB_EXTERN double stb_pcg32_uniform(uint64_t *seed);
+
+// Gaussian (normal) random sample with mean 0 and standard deviation 1 from
+// Knuth and Marsaglia and Bray, ``A Convenient Method for Generating Normal Variables''
+STB_EXTERN double stb_pcg32_gauss(uint64_t *seed);
+
+// Gaussian (normal) random sample with specified mean and standard deviation
+STB_EXTERN double stb_pcg32_gauss_msd(uint64_t *seed, double mean, double stdev);
+
+// Implementation based on "A Simple Method for Generating Gamma Variables"
+// by George Marsaglia and Wai Wan Tsang.  ACM Transactions on Mathematical Software
+// Vol 26, No 3, September 2000, pages 363-372.
+// shape (alpha)  and scale (lambda)
+STB_EXTERN double stb_pcg32_gamma(uint64_t *seed, const double shape, const double scale);
+
+STB_EXTERN double stb_pcg32_exponential(uint64_t *seed);
+
+// exponential random sample with specified mean
+STB_EXTERN double stb_pcg32_exponential_m(uint64_t *seed, double mean);
+
+// Knuth: mean (lambda)
+STB_EXTERN double stb_pcg32_poisson(uint64_t *seed, const double mean);
+
+STB_EXTERN double stb_pcg32_nbinom(uint64_t *seed, double size, double prob);
+
+STB_EXTERN double stb_pcg32_chisquare(uint64_t *seed, double degrees_of_freedom);
+
+STB_EXTERN double stb_pcg32_invgamma(uint64_t *seed, double shape, double scale);
+
+STB_EXTERN double stb_pcg32_beta(uint64_t *seed, double a, double b);
+
+STB_EXTERN double stb_pcg32_nbinom_mu(uint64_t *seed, double size, double mu);
 
 /**
  * Confidence Sequence Method.
@@ -1349,52 +1383,6 @@ double stb_trigamma_inverse(double x)
 
     return y;
 }
-
-/* Moment estimation of the parameters of a scaled F-distribution (the prior) 
- * The first degrees of freedom is given 
- */
-void stb_fit_f_dist(double *var, int len, int df1, double *pvar, double *pdf2)
-{
-    double median = stb_median(var, len);
-    // More than half of residual variances are exactly zero
-    if (stb_double_almost_equal(median, 0.0, 1e-5)) {
-        printf("More than half of residual variances are exactly zero\n");
-        median = 1.0;
-    }
-
-    // Zero sample variances will be offset
-    double *z = malloc(len * sizeof(double));
-    double *e = malloc(len * sizeof(double));
-    double c1 = stb_polygamma(0, df1 / 2.0);
-    double c2 = log(df1 / 2.0);
-    for (int i = 0; i < len; i++) {
-        // Better to work on with log(F)
-        z[i] = log(fmax(var[i], 1e-5 * median));
-        e[i] = z[i] - c1 + c2;
-    }
-
-    double tevar, evar, emean = 0.0;
-    stb_meanvar(e, len, &emean, &tevar);
-    double *etvar =  malloc(len * sizeof(double));
-    c1 = (double) len / (double) (len - 1);
-    c2 = stb_polygamma(1, df1 / 2.0);
-    for (int i = 0; i < len; i++) {
-        etvar[i] = c1 * stb_sqr(e[i] - emean) - c2;
-    }
-    stb_meanvar(etvar, len, &evar, &tevar);
-    if (evar > 0.0) {
-        *pdf2 = 2 * stb_trigamma_inverse(evar);
-        *pvar = exp(emean + stb_polygamma(0, *pdf2 / 2.0) - log(*pdf2 / 2.0));
-    } else {
-        *pdf2 = stb_pos_inf;
-        *pvar = exp(emean);
-    }
-
-    free(z);
-    free(e);
-    free(etvar);
-}
-
 
 #define PI2 6.283185307179586476925286
 #define S0 0.083333333333333333333       /* 1/12 */
@@ -3355,6 +3343,133 @@ uint32_t stb_pcg32_bounded(uint64_t *s, uint32_t n)
 	}
 }
 
+double stb_pcg32_uniform(uint64_t *seed)
+{
+    return stb_uint32_to_double(stb_pcg32(seed));
+}
+
+// Gaussian (normal) random sample with mean 0 and standard deviation 1 from
+// Knuth and Marsaglia and Bray, ``A Convenient Method for Generating Normal Variables''
+double stb_pcg32_gauss(uint64_t *seed)
+{
+    static double V1, V2, S;
+    static int phase = 0;
+    double X;
+
+    if(phase == 0) {
+        do {
+            double U1 = stb_pcg32_uniform(seed);;
+            double U2 = stb_pcg32_uniform(seed);;
+
+            V1 = 2 * U1 - 1;
+            V2 = 2 * U2 - 1;
+            S = V1 * V1 + V2 * V2;
+        } while(S >= 1 || S == 0);
+
+        X = V1 * sqrt(-2 * log(S) / S);
+    } else
+        X = V2 * sqrt(-2 * log(S) / S);
+
+    phase = 1 - phase;
+
+    return X;
+}
+
+// Gaussian (normal) random sample with specified mean and standard deviation
+double stb_pcg32_gauss_msd(uint64_t *seed, double mean, double stdev)
+{
+    return mean + stdev * stb_pcg32_gauss(seed);
+}
+
+// Implementation based on "A Simple Method for Generating Gamma Variables"
+// by George Marsaglia and Wai Wan Tsang.  ACM Transactions on Mathematical Software
+// Vol 26, No 3, September 2000, pages 363-372.
+// shape (alpha)  and scale (lambda)
+double stb_pcg32_gamma(uint64_t *seed, const double shape, const double scale)
+{
+    double x, d, c, Z, V, U;
+    int flag;
+    if (shape > 1.0) {
+        d = shape - 1.0 / 3.0;
+        c = 1.0 / sqrt(9.0 * d);
+        flag = 1;
+        while (flag) {
+            Z = stb_pcg32_gauss(seed);
+            if (Z > (-1.0 / c)) {
+                V = pow(1.0 + c * Z, 3);
+                U = stb_pcg32_uniform(seed);
+                flag = log(U) > (0.5 * stb_sqr(Z) + d - d * V + d * log(V));
+            }
+        }
+    } else {
+        x = stb_pcg32_gamma(seed, shape + 1, scale);
+        x  = x * pow(stb_pcg32_uniform(seed), 1.0 / shape);
+    }
+
+    return x;
+}
+
+double stb_pcg32_exponential(uint64_t *seed)
+{
+    // exponential random sample with mean 1
+    return -log(stb_pcg32_uniform(seed));
+}
+
+// exponential random sample with specified mean
+double stb_pcg32_exponential_m(uint64_t *seed, double mean)
+{
+    // exponential random sample with mean 1
+    return mean * stb_pcg32_exponential(seed);
+}
+
+
+// Knuth: mean (lambda)
+double stb_pcg32_poisson(uint64_t *seed, const double mean)
+{
+    double k = 0.0;
+    double p = 1.0;
+    const double L = exp(-mean);
+    do {
+        p *= stb_pcg32_uniform(seed);
+        k += 1.0;
+    } while (p > L);
+    return k - 1.0;
+}
+
+double stb_pcg32_nbinom(uint64_t *seed, double size, double prob)
+{
+    if (prob == 1.0) {
+        return 0.0;
+    }
+
+    return stb_pcg32_poisson(seed, stb_pcg32_gamma(seed, size, (1 - prob) / prob));
+}
+
+double stb_pcg32_chisquare(uint64_t *seed, double degrees_of_freedom)
+{
+    return stb_pcg32_gamma(seed, degrees_of_freedom / 2.0, 2.0);
+}
+
+double stb_pcg32_invgamma(uint64_t *seed, double shape, double scale)
+{
+    return 1.0 / stb_pcg32_gamma(seed, shape, 1.0 / scale);
+}
+
+double stb_pcg32_beta(uint64_t *seed, double a, double b)
+{
+    double u = stb_pcg32_gamma(seed, a, 1.0);
+    double v = stb_pcg32_gamma(seed, b, 1.0);
+    return u / (u + v);
+}
+
+double stb_pcg32_nbinom_mu(uint64_t *seed, double size, double mu)
+{
+    if (mu == 0.0) {
+        return 0.0;
+    }
+    
+    return stb_pcg32_poisson(seed, stb_pcg32_gamma(seed, size, mu / size));
+}
 /* -log(sqrt(2*pi)) */
 #define MINUS_LOG_SQRT_2PI (-0.9189385332046727)
 
@@ -3880,6 +3995,51 @@ int icmp(const void *a, const void *b)
 		return 0;
 	}
 #undef _I
+}
+
+/* Moment estimation of the parameters of a scaled F-distribution (the prior) 
+ * The first degrees of freedom is given 
+ */
+void stb_fit_f_dist(double *var, int len, int df1, double *pvar, double *pdf2)
+{
+    double median = stb_median(var, len);
+    // More than half of residual variances are exactly zero
+    if (stb_double_almost_equal(median, 0.0, 1e-5)) {
+        printf("More than half of residual variances are exactly zero\n");
+        median = 1.0;
+    }
+
+    // Zero sample variances will be offset
+    double *z = malloc(len * sizeof(double));
+    double *e = malloc(len * sizeof(double));
+    double c1 = stb_polygamma(0, df1 / 2.0);
+    double c2 = log(df1 / 2.0);
+    for (int i = 0; i < len; i++) {
+        // Better to work on with log(F)
+        z[i] = log(fmax(var[i], 1e-5 * median));
+        e[i] = z[i] - c1 + c2;
+    }
+
+    double tevar, evar, emean = 0.0;
+    stb_meanvar(e, len, &emean, &tevar);
+    double *etvar =  malloc(len * sizeof(double));
+    c1 = (double) len / (double) (len - 1);
+    c2 = stb_polygamma(1, df1 / 2.0);
+    for (int i = 0; i < len; i++) {
+        etvar[i] = c1 * stb_sqr(e[i] - emean) - c2;
+    }
+    stb_meanvar(etvar, len, &evar, &tevar);
+    if (evar > 0.0) {
+        *pdf2 = 2 * stb_trigamma_inverse(evar);
+        *pvar = exp(emean + stb_polygamma(0, *pdf2 / 2.0) - log(*pdf2 / 2.0));
+    } else {
+        *pdf2 = stb_pos_inf;
+        *pvar = exp(emean);
+    }
+
+    free(z);
+    free(e);
+    free(etvar);
 }
 
 /* Filter items in place and return list of unique numbers, their count and the tumber of unique numbers.
