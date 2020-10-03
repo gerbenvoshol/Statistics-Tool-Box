@@ -610,7 +610,7 @@ STB_EXTERN double stb_pcg32_gauss_msd(uint64_t *seed, double mean, double stdev)
 // by George Marsaglia and Wai Wan Tsang.  ACM Transactions on Mathematical Software
 // Vol 26, No 3, September 2000, pages 363-372.
 // shape (alpha)  and scale (lambda)
-STB_EXTERN double stb_pcg32_gamma(uint64_t *seed, const double shape, const double scale);
+STB_EXTERN double stb_pcg32_gamma(uint64_t *seed, double shape, double scale);
 
 STB_EXTERN double stb_pcg32_exponential(uint64_t *seed);
 
@@ -3385,25 +3385,27 @@ double stb_pcg32_gauss_msd(uint64_t *seed, double mean, double stdev)
 // by George Marsaglia and Wai Wan Tsang.  ACM Transactions on Mathematical Software
 // Vol 26, No 3, September 2000, pages 363-372.
 // shape (alpha)  and scale (lambda)
-double stb_pcg32_gamma(uint64_t *seed, const double shape, const double scale)
+double stb_pcg32_gamma(uint64_t *seed, double shape, double scale)
 {
     double x, d, c, Z, V, U;
     int flag;
-    if (shape > 1.0) {
+    if (shape >= 1.0) {
         d = shape - 1.0 / 3.0;
         c = 1.0 / sqrt(9.0 * d);
         flag = 1;
         while (flag) {
             Z = stb_pcg32_gauss(seed);
+            //printf("Z:%lf\n", Z);
             if (Z > (-1.0 / c)) {
                 V = pow(1.0 + c * Z, 3);
                 U = stb_pcg32_uniform(seed);
-                flag = log(U) > (0.5 * stb_sqr(Z) + d - d * V + d * log(V));
+                flag = ((log(U) > (0.5 * stb_sqr(Z) + d - d * V + d * log(V))) || (U > 1 - 0.0331 * pow(Z, 4.0)));
             }
         }
+        x = d * V * scale;
     } else {
-        x = stb_pcg32_gamma(seed, shape + 1, scale);
-        x  = x * pow(stb_pcg32_uniform(seed), 1.0 / shape);
+        x = stb_pcg32_gamma(seed, shape + 1, 1.0);
+        x = scale * x * pow(stb_pcg32_uniform(seed), 1.0 / shape);
     }
 
     return x;
@@ -3426,14 +3428,42 @@ double stb_pcg32_exponential_m(uint64_t *seed, double mean)
 // Knuth: mean (lambda)
 double stb_pcg32_poisson(uint64_t *seed, const double mean)
 {
-    double k = 0.0;
-    double p = 1.0;
-    const double L = exp(-mean);
-    do {
-        p *= stb_pcg32_uniform(seed);
-        k += 1.0;
-    } while (p > L);
-    return k - 1.0;
+    if (mean < 30) {
+        double k = 0.0;
+        double p = stb_pcg32_uniform(seed);
+        const double target = exp(-mean);
+        while (p > target) {
+            p *= stb_pcg32_uniform(seed);
+            k += 1.0;
+        }
+        return k;
+    } else {
+        // "Rejection method PA" from "The Computer Generation of Poisson Random Variables" by A. C. Atkinson
+        // Journal of the Royal Statistical Society Series C (Applied Statistics) Vol. 28, No. 1. (1979)
+        // The article is on pages 29-35. The algorithm given here is on page 32.
+        // The algorithm is also described on https://www.johndcook.com/blog/2010/06/14/generating-poisson-random-values/
+        double c = 0.767 - 3.36 / mean;
+        double beta = M_PI / sqrt(3.0 * mean);
+        double alpha = beta * mean;
+        double k = log(c) - mean - log(beta);
+
+        while(1)
+        {
+            double u = stb_pcg32_uniform(seed);
+            double x = (alpha - log((1.0 - u) / u)) / beta;
+            double n = floor(x + 0.5);
+            if (n < 0) {
+                continue;
+            }
+            double v = stb_pcg32_uniform(seed);
+            double y = alpha - beta*x;
+            double lhs = y + log(v / stb_sqr(1.0 + exp(y)));
+            double rhs = k + n * log(mean) - stb_log_gamma(n + 1);
+            if (lhs <= rhs) {
+                return n;
+            }
+        }        
+    }
 }
 
 double stb_pcg32_nbinom(uint64_t *seed, double size, double prob)
