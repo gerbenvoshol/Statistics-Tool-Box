@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.20  stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
         1.19  stb_pdf_binom and stb_pdf_pois, the binomial and poison probability density functions
         1.18  stb_polygamma, stb_trigamma_inverse gamme functions and stb_fit_f_dist for moment estimation of the scaled F-distribution
         1.17  stb_qnorm and stb_qnorm_with_reference (also matrix variants) quantile normalization between columns with and without a reference
@@ -375,6 +376,16 @@ STB_EXTERN double stb_bonferroni(double p, int number_of_comparisons);
  */
 STB_EXTERN void stb_mann_whitney(double *data1, int n1, double *data2, int n2, double *U, double *p);
 
+/* Calculates the two-tailed P-value for the Fisher Exact test.
+ *                Men Women   Row total
+ * Studying         1     9   10
+ * Not-studying    11     3   14
+ * Column total    12    12   24
+ *
+ * p = 2.759456e-03 two-sided
+ */
+STB_EXTERN void stb_fisher2x2(int a, int b, int c, int d, double *p);
+
 /* Given a vector with observed and expected values with the amount of rows and columns, this function
  * performs the chisquare test and returns 
  */
@@ -429,6 +440,9 @@ STB_EXTERN void stb_histogram_add(double *data, int n, struct stb_hist *hist);
 
 /* Calculate the factorial */
 STB_EXTERN double stb_factorial(int n);
+
+/* Calculate the factorial */
+STB_EXTERN double stb_log_factorial(int n);
 
 /* Compute (numerical stable) sum of the data using the Neumaier summation algorithm */
 STB_EXTERN double stb_sum(double *data, int n);
@@ -2441,6 +2455,36 @@ double stb_bonferroni(double p, int number_of_comparisons)
 	return (1.0 - pow(1.0 - p, (double) number_of_comparisons));
 }
 
+double stb_log_hypergeometric_prob(int a,int b,int c,int d) 
+{
+    return stb_log_factorial(a+b) + stb_log_factorial(c+d) + stb_log_factorial(a+c) + stb_log_factorial(b+d) - stb_log_factorial(a)- stb_log_factorial(b) - stb_log_factorial(c) - stb_log_factorial(d) - stb_log_factorial(a+b+c+d);
+}
+
+/* Calculates the two-tailed P-value for the Fisher Exact test.
+ *                Men Women   Row total
+ * Studying         1     9   10
+ * Not-studying    11     3   14
+ * Column total    12    12   24
+ *
+ * p = 2.759456e-03 two-sided
+ */
+void stb_fisher2x2(int a, int b, int c, int d, double *p)
+{
+    int n = a + b + c + d;
+    double cutoff = stb_log_hypergeometric_prob(a,b,c,d);
+    double Pvalue = 0;
+    for(int x = 0; x <= n; x++) {
+        if( a+b-x >= 0 && a+c-x >= 0 && d-a+x >=0 ) {
+            double l = stb_log_hypergeometric_prob(x,a+b-x,a+c-x,d-a+x);
+            if( l <= cutoff ) {
+                Pvalue += exp(l);
+            }
+        }
+    }
+    
+    *p = Pvalue;
+}
+
 /* Given a vector with observed and expected values with the amount of rows anc columns, this function
  * performs the chisquare test and returns */
 void stb_chisqr(double *observed, double *expected, int rows, int columns, double *CV, double *p)
@@ -2777,6 +2821,18 @@ double stb_factorial(int n)
 	}
 
 	return factorial;
+}
+
+double stb_log_factorial(int n)
+{
+    double factorial = 0;
+
+    while (n > 1) {
+        factorial = factorial + log(n);
+        n = n - 1;
+    }
+
+    return factorial;
 }
 
 /* Returns and array with the ranks of the set of observations. This is needed by stb_spearman */ 
