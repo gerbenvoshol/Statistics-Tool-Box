@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.19 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.21 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
