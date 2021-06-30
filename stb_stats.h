@@ -1513,22 +1513,38 @@ double stb_pdf_pois(double x, double lambda)
  * Suppose we randomly select 5 cards without replacement from an ordinary deck of 
  * playing cards. What is the probability of getting exactly 2 red cards (i.e., hearts or diamonds)?
  *
- * N = 52; since there are 52 cards in a deck.
- * k = 26; since there are 26 red cards in a deck.
- * n = 5; since we randomly select 5 cards from the deck.
+ * n = 26; since there are 26 (52-26) NON red cards in a deck.
+ * N = 26; since there are 26 red cards in a deck.
+ * k = 5; since we randomly select 5 cards from the deck.
  * x = 2; since 2 of the cards we select are red.
- */      
-void stb_pdf_hypgeo(int x, int N, int n, int k, double *p)
-{
-  if (k > N + n) {
-      k = N + n;
-  }
+ * Pval = 0.325130
+ *
+ * AND
+ * Suppose we select 5 cards from an ordinary deck of playing cards. What is the probability of obtaining 2 or fewer hearts?
+ * Solution: This is a hypergeometric experiment in which we know the following:
+ * 
+ * n = 52-13; since there are 52-13 NON heart cards in a deck.
+ * N = 13; since there are 13 hearts in a deck.
+ * k = 5; since we randomly select 5 cards from the deck.
+ * x = 0 to 3; since our selection includes 0, 1, or 2 hearts.
 
-  if (x > N || x > k) {
-    *p = 0.0 ;
-  } else if (k > n && x + n < k ) {
-    *p = 0.0;
-  } else {
+int main(int argc, char const *argv[])
+{
+    // PDF
+    double pval = sstb_pdf_hypgeo(2, 26, 52-26, 5);
+    printf("%lf\n", pval);
+
+    // CDF
+    pval = 0;
+    for (int i = 0; i <= 2; i++) {
+        pval+= sstb_pdf_hypgeo(i, 13, 52-13, 5);
+    }
+    printf("%lf\n", pval);
+    return 0;
+}
+ */  
+double sstb_pdf_hypgeo(int x, int N, int n, int k)
+{
     // The number of combinations of x out of N
     double c1 = stb_log_factorial(N) - (stb_log_factorial(x) + stb_log_factorial(N - x));
      // The number of combinations of k-x out of n
@@ -1536,8 +1552,7 @@ void stb_pdf_hypgeo(int x, int N, int n, int k, double *p)
     // The number of combinations of k out of N+n
     double c3 = stb_log_factorial(N+n) - (stb_log_factorial(k) + stb_log_factorial((N+n) - k));
 
-    *p = exp(c1 + c2 - c3);
-  }
+    return exp(c1 + c2 - c3);
 }
 
 // PDF
