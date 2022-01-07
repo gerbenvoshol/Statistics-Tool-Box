@@ -319,7 +319,7 @@ do {                                                                      \
  * E is an expression which, given `l` and `r` of type K returns whether l and r are equal
  */
 #define NB_START 8
-#define SB_START 4
+#define SB_START 8
 typedef unsigned long long _flag_t;
 #define stb_create_htable(P, K, V, H, E)                                       \
   typedef struct {                                                             \
@@ -4229,7 +4229,7 @@ int stb_count_fields(const char *line, const char delim)
     if (!line) {
         return -1;
     }
-    
+
     if (*line == '\0') {
         return -1;
     }
