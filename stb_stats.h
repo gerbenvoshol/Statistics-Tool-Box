@@ -18,7 +18,7 @@
  ============================================================================
 
  Version History
-        1.22  stb_shannon, stb_jaccard, simple hash table
+        1.22  stb_shannon, stb_simpson, stb_jaccard, stb_bray_curtis, simple hash table
         1.21  stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
         1.20  stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
         1.19  stb_pdf_binom and stb_pdf_pois, the binomial and poison probability density functions
@@ -1206,6 +1206,13 @@ STB_EXTERN uint64_t inline stb_murmer64(const char *key);
  */
 STB_EXTERN void stb_shannon(double *data, size_t n, double *index, double *evenness);
 
+/* Simpson's Diversity Index is a measure of diversity which takes into account the number of species
+ * present, as well as the relative abundance of each species. As species richness and evenness 
+ * increase, so diversity increases. The value ranges between 0 and 1. One represents infinite diversity
+ * and 0, no diversity.
+ */
+STB_EXTERN void stb_simpson(double *data, size_t n, double *index);
+
 /* The Jaccard similarity index (sometimes called the Jaccard similarity coefficient) compares members 
  * for two sets to see which members are shared and which are distinct. It’s a measure of similarity for 
  * the two sets of data, with a range from 0% to 100%. The higher the percentage, the more similar the 
@@ -1213,6 +1220,12 @@ STB_EXTERN void stb_shannon(double *data, size_t n, double *index, double *evenn
  * may give erroneous results, especially with very small samples or data sets with missing observations.
  */
 STB_EXTERN double stb_jaccard(char **setA, size_t n_setA, char **setB, size_t n_setB);
+
+/* The Bray–Curtis dissimilarity is a measure used to quantify the compositional dissimilarity between two 
+ * different sites, based on counts (c_setA and c_setB) at each site. The Bray–Curtis dissimilarity is bounded between 0 and 1, 
+ * where 0 means the two sites have the same composition and 1 means the two sites do not share any species.
+ */
+STB_EXTERN double stb_bray_curtis(char **setA, double *c_setA, size_t n_setA, char **setB, double *c_setB, size_t n_setB);
 
 #ifdef STB_STATS_DEFINE
 
@@ -7194,6 +7207,25 @@ void stb_shannon(double *data, size_t n, double *index, double *evenness)
     *evenness = H/log((double) n);
 }
 
+/* Simpson's Diversity Index is a measure of diversity which takes into account the number of species
+ * present, as well as the relative abundance of each species. As species richness and evenness 
+ * increase, so diversity increases. The value ranges between 0 and 1. One represents infinite diversity
+ * and 0, no diversity.
+ */
+void stb_simpson(double *data, size_t n, double *index)
+{
+    double value = 0.0;
+    double sum = 0.0;
+
+    int i;
+    for (i = 0; i < n; i++) {
+        value += data[i] * (data[i] - 1);
+        sum += data[i];
+    }
+
+    *index = 1 - value / (sum * (sum - 1));
+}
+
 /* The Jaccard similarity index (sometimes called the Jaccard similarity coefficient) compares members 
  * for two sets to see which members are shared and which are distinct. It’s a measure of similarity for 
  * the two sets of data, with a range from 0% to 100%. The higher the percentage, the more similar the 
@@ -7209,27 +7241,66 @@ int stb_strcmp(char * l, char *r)
     return (strcmp(l, r));
 }
 
-stb_create_htable(stb_JHT_, char *, char *, stb_murmer64(it), stb_strcmp(l, r) == 0)
+stb_create_htable(stb_JHT_, char *, double, stb_murmer64(it), stb_strcmp(l, r) == 0)
 
 double stb_jaccard(char **setA, size_t n_setA, char **setB, size_t n_setB)
 {
     stb_JHT_t JHT = stb_JHT_new();
     int i;
     for (i = 0; i < n_setA; i++) {
-        stb_JHT_put(JHT, setA[i], setA[i]);
+        stb_JHT_put(JHT, setA[i], 1.0);
     }
 
-    char *ret;
+    double ret;
     double shared = 0.0;
     for (i = 0; i < n_setB; i++) {
-        ret = NULL;
+        ret = 0.0;
         stb_JHT_get(JHT, setB[i], &ret);
         if (ret) {
             shared++;
         }
     }
 
+    stb_JHT_free(JHT);
+
     return shared / (double) (n_setA + n_setB - shared);
+}
+
+/* The Bray–Curtis dissimilarity is a measure used to quantify the compositional dissimilarity between two 
+ * different sites, based on counts (c_setA and c_setB) at each site. The Bray–Curtis dissimilarity is bounded between 0 and 1, 
+ * where 0 means the two sites have the same composition and 1 means the two sites do not share any species.
+ */
+double stb_bray_curtis(char **setA, double *c_setA, size_t n_setA, char **setB, double *c_setB, size_t n_setB)
+{
+    stb_JHT_t JHT = stb_JHT_new();
+    int i;
+    double sumA = 0.0, sumB = 0.0;
+
+    for (i = 0; i < n_setA; i++) {
+        // Add species and counts to hash table
+        stb_JHT_put(JHT, setA[i], c_setA[i]);
+        sumA += c_setA[i];
+    }
+
+    double ret;
+    double lesser_sum = 0.0;
+    for (i = 0; i < n_setB; i++) {
+        ret = 0.0;
+        stb_JHT_get(JHT, setB[i], &ret);
+        sumB += c_setB[i];
+        if (ret) {
+            // Use lesser sum
+            if (ret < c_setB[i]) {
+                lesser_sum += ret;
+            } else {
+                lesser_sum += c_setB[i];
+            }
+        }
+    }
+
+    stb_JHT_free(JHT);
+
+    return 1 - (2 * lesser_sum) / (sumA + sumB);
 }
 
 #endif //STB_STATS_DEFINE
