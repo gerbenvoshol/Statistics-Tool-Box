@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.22  stb_shannon, stb_jaccard, simple hash table
         1.21  stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
         1.20  stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
         1.19  stb_pdf_binom and stb_pdf_pois, the binomial and poison probability density functions
@@ -306,6 +307,164 @@ do {                                                                      \
     }                                                                     \
     while (recursion >= stack);                                           \
 } while (0)
+
+/* Function stb_creat_htable (Public Domain HASH Table)
+ *
+ * This function performs operations for a very basic hash table.
+ *  
+ * P is a prefix for all symbols of the table
+ * K is the key type
+ * V is the value type
+ * H is an expression which, given `it` of type K returns the hash as a uint64_t
+ * E is an expression which, given `l` and `r` of type K returns whether l and r are equal
+ */
+#define NB_START 8
+#define SB_START 4
+typedef unsigned long long _flag_t;
+#define stb_create_htable(P, K, V, H, E)                                       \
+  typedef struct {                                                             \
+    K *keys;                                                                   \
+    V *values;                                                                 \
+    size_t *f_bucket;                                                          \
+    size_t n_bucket;                                                           \
+    size_t s_bucket;                                                           \
+  } _##P##t;                                                                   \
+  typedef _##P##t *P##t;                                                       \
+  size_t P##bsize(P##t ptr) { return ptr->n_bucket * ptr->s_bucket; }          \
+  size_t P##bstart(P##t ptr, size_t bucket) { return bucket * ptr->s_bucket; } \
+  P##t _##P##new (size_t nb, size_t sb) {                                      \
+    P##t ptr = malloc(sizeof(_##P##t));                                        \
+    ptr->n_bucket = nb;                                                        \
+    ptr->s_bucket = sb;                                                        \
+    size_t total_size = P##bsize(ptr);                                         \
+    ptr->keys = calloc(total_size, sizeof(K));                                 \
+    ptr->values = calloc(total_size, sizeof(V));                               \
+    ptr->f_bucket = calloc(ptr->n_bucket, sizeof(size_t));                     \
+    return ptr;                                                                \
+  }                                                                            \
+                                                                               \
+  P##t P##new (void) { return _##P##new (NB_START, SB_START); }                \
+  void P##free(P##t ptr) {                                                     \
+    free(ptr->keys);                                                           \
+    free(ptr->values);                                                         \
+    free(ptr->f_bucket);                                                       \
+    free(ptr);                                                                 \
+  }                                                                            \
+  void P##put(P##t, K, V);                                                     \
+  size_t P##nexti(P##t, size_t);                                               \
+  size_t P##bufsize(P##t);                                                     \
+  void _##P##resize(P##t table) {                                              \
+    size_t ncount = table->n_bucket * 2;                                       \
+    size_t nsize = table->s_bucket * 2;                                        \
+    P##t n = _##P##new (ncount, nsize);                                        \
+    for (size_t i = 0; i < P##bsize(table); i = P##nexti(table, i)) {          \
+      P##put(n, table->keys[i], table->values[i]);                             \
+    }                                                                          \
+    free(table->keys);                                                         \
+    free(table->values);                                                       \
+    free(table->f_bucket);                                                     \
+    *table = *n;                                                               \
+    free(n);                                                                   \
+  }                                                                            \
+  static inline uint64_t P##hash(K it) { return H; }                                  \
+  static inline _Bool P##eq(K l, K r) { return E; }                                   \
+  void P##put(P##t table, K k, V v) {                                          \
+    uint64_t hash = P##hash(k);                                                \
+    size_t bucket = hash % table->n_bucket;                                    \
+    size_t start = P##bstart(table, bucket);                                   \
+    size_t insertion_point = start;                                            \
+    for (;;) {                                                                 \
+      K candidate = table->keys[insertion_point];                              \
+      if (table->f_bucket[bucket] && !P##eq(candidate, k) &&                   \
+          insertion_point - start < table->f_bucket[bucket]) {                 \
+        if (insertion_point - start < table->s_bucket - 1) {                   \
+          insertion_point++;                                                   \
+        } else {                                                               \
+          _##P##resize(table);                                                 \
+          P##put(table, k, v);                                                 \
+          break;                                                               \
+        }                                                                      \
+      } else {                                                                 \
+        table->keys[insertion_point] = k;                                      \
+        table->values[insertion_point] = v;                                    \
+        table->f_bucket[bucket]++;                                             \
+        break;                                                                 \
+      }                                                                        \
+    }                                                                          \
+  }                                                                            \
+  _Bool P##get(P##t table, K k, V *place) {                                    \
+    uint64_t hash = P##hash(k);                                                \
+    size_t bucket = hash % table->n_bucket;                                    \
+    size_t start = P##bstart(table, bucket);                                   \
+    for (size_t i = 0; i <= table->f_bucket[bucket]; ++i) {                    \
+      if (P##eq(k, table->keys[start + i])) {                                  \
+        *place = table->values[start + i];                                     \
+        return true;                                                           \
+      }                                                                        \
+    }                                                                          \
+    return false;                                                              \
+  }                                                                            \
+                                                                               \
+  size_t P##nexti(P##t table, size_t idx) {                                    \
+    if (idx >= P##bsize(table) - 1)                                            \
+      return idx + 1;                                                          \
+    idx++;                                                                     \
+    if (table->keys[idx])                                                      \
+      return idx;                                                              \
+    return P##nexti(table, idx);                                               \
+  }
+
+STB_EXTERN int stb_strcmp(char * l, char *r);
+
+/* Example usage
+// Note the lack of ; !!!
+stb_create_htable(stb_ii_, int, int, it, l == r)
+stb_create_htable(stb_ss_, char const *, char const *, stb_murmer64(it), stb_strcmp(l, r) == 0)
+
+int main() {}
+    // create hashtable with int key and int value
+    stb_ii_t t = stb_ii_new();
+    stb_ii_put(t, 1, 3);
+    stb_ii_put(t, 2, 3);
+    stb_ii_put(t, 3, 3);
+    stb_ii_put(t, 11, 3);
+    stb_ii_put(t, 4, 3);
+    stb_ii_put(t, 8, 3);
+    stb_ii_put(t, 7, 3);
+    stb_ii_put(t, 7, 3);
+    
+    for (int i = 10000; i < 10016; ++i) {
+        stb_ii_put(t, i, i * 2);
+    }
+
+    for (size_t i = 0; i < stb_ii_bsize(t); i = stb_ii_nexti(t, i)) {
+        if (t->keys[i] * 2 != t->values[i]) {
+            fprintf(stderr, "Key ERROR\n");
+        }
+    }
+
+    for (int i = 10000; i < 10016; ++i) {
+        int u;
+        stb_ii_get(t, i, &u);
+        fprintf(stderr, "Key: %i Value: %i", i, u);
+    }
+
+    stb_ii_free(t);
+
+    // create hash table with string key and string value
+    stb_ss_t t = stb_ss_new();
+    stb_ss_put(t, "1", "2");
+    stb_ss_put(t, "2", "3");
+    stb_ss_put(t, "6", "9");
+    stb_ss_put(t, "3", "2");
+    stb_ss_put(t, "1", "2");
+
+    char const *ptr = NULL;
+    stb_ss_get(t, "1", &ptr));
+
+    stb_ss_free(t);
+}
+*/
 
 struct stb_hist {
 	int number_of_bins;
@@ -1031,6 +1190,29 @@ STB_EXTERN double stb_pdf_pois(double x, double lambda);
  * x = 2; since 2 of the cards we select are red.
  */      
 STB_EXTERN double stb_pdf_hypgeo(int x, int N, int n, int k);
+
+// Hash function: Murmer One At A Time 32 bit
+STB_EXTERN uint32_t inline stb_murmer32(const char *key);
+
+// Hash function: Murmer One At A Time 64 bit
+STB_EXTERN uint64_t inline stb_murmer64(const char *key);
+
+/* Calculate the Shannon Index (a.k.a. Shannon's diversity index, the Shannon–Wiener index, 
+ * the Shannon–Weaver index, the Shannon entropy). Pilou evenness compares the actual diversity
+ * value (such as the Shannon Index, H′) to the maximum possible diversity value (when all species
+ * are equally common, Hmax=ln S where S is the total number of species). 
+ * The higher the Shannon index, the more diverse the species are in the habitat.
+ * Evenness gives you a value between 0 and 1. The lower the evenness, the higher the diversity.
+ */
+STB_EXTERN void stb_shannon(double *data, size_t n, double *index, double *evenness);
+
+/* The Jaccard similarity index (sometimes called the Jaccard similarity coefficient) compares members 
+ * for two sets to see which members are shared and which are distinct. It’s a measure of similarity for 
+ * the two sets of data, with a range from 0% to 100%. The higher the percentage, the more similar the 
+ * two populations. Although it’s easy to interpret, it is extremely sensitive to small samples sizes and 
+ * may give erroneous results, especially with very small samples or data sets with missing observations.
+ */
+STB_EXTERN double stb_jaccard(char **setA, size_t n_setA, char **setB, size_t n_setB);
 
 #ifdef STB_STATS_DEFINE
 
@@ -6961,6 +7143,94 @@ void stb_neugas(double **x, int n, int p, int k, double ***cret, int **zret, dou
     }
     return;
 } /* end of neugas */
+
+// Murmer One At A Time 32 bit
+uint32_t inline stb_murmer32(const char *key)
+{
+    uint32_t h = 3323198485ul;
+    for (;*key;++key) {
+        h ^= *key;
+        h *= 0x5bd1e995;
+        h ^= h >> 15;
+  }
+
+  return h;
+}
+
+// Murmer One At A Time 64 bit
+uint64_t inline stb_murmer64(const char *key)
+{
+    uint64_t h = 525201411107845655ull;
+    for (;*key;++key) {
+        h ^= *key;
+        h *= 0x5bd1e9955bd1e995;
+        h ^= h >> 47;
+    }
+
+    return h;
+}
+
+/* Calculate the Shannon Index (a.k.a. Shannon's diversity index, the Shannon–Wiener index, 
+ * the Shannon–Weaver index, the Shannon entropy). Pilou evenness compares the actual diversity
+ * value (such as the Shannon Index, H′) to the maximum possible diversity value (when all species
+ * are equally common, Hmax=ln S where S is the total number of species). 
+ * The higher the Shannon index, the more diverse the species are in the habitat (alpha diversity).
+ * Evenness gives you a value between 0 and 1. The lower the evenness, the higher the diversity.
+ */
+void stb_shannon(double *data, size_t n, double *index, double *evenness)
+{
+    double sum = stb_sum(data, n);
+    double H = 0.0, value;
+    
+    int i;
+    for (i = 0; i < n; i++) {
+        value = data[i]/sum;
+        H += value * log(value);
+    }
+    H *= -1;
+
+    *index = H;
+
+    *evenness = H/log((double) n);
+}
+
+/* The Jaccard similarity index (sometimes called the Jaccard similarity coefficient) compares members 
+ * for two sets to see which members are shared and which are distinct. It’s a measure of similarity for 
+ * the two sets of data, with a range from 0% to 100%. The higher the percentage, the more similar the 
+ * two populations. Although it’s easy to interpret, it is extremely sensitive to small samples sizes and 
+ * may give erroneous results, especially with very small samples or data sets with missing observations.
+ */
+
+int stb_strcmp(char * l, char *r)
+{
+    if (!l || !r)
+        return 1;
+
+    return (strcmp(l, r));
+}
+
+stb_create_htable(stb_JHT_, char *, char *, stb_murmer64(it), stb_strcmp(l, r) == 0)
+
+double stb_jaccard(char **setA, size_t n_setA, char **setB, size_t n_setB)
+{
+    stb_JHT_t JHT = stb_JHT_new();
+    int i;
+    for (i = 0; i < n_setA; i++) {
+        stb_JHT_put(JHT, setA[i], setA[i]);
+    }
+
+    char *ret;
+    double shared = 0.0;
+    for (i = 0; i < n_setB; i++) {
+        ret = NULL;
+        stb_JHT_get(JHT, setB[i], &ret);
+        if (ret) {
+            shared++;
+        }
+    }
+
+    return shared / (double) (n_setA + n_setB - shared);
+}
 
 #endif //STB_STATS_DEFINE
 #endif //STB__STATS__H
