@@ -18,6 +18,7 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_shannon, stb_jaccard, simple hash table
 * stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
 * stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
 * stb_pdf_binom and stb_pdf_pois, the binomial and poison probability density functions
