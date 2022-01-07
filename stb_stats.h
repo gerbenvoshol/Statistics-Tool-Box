@@ -4226,6 +4226,14 @@ int stb_count_fields(const char *line, const char delim)
 	const char *ptr;
 	int cnt, fQuote;
 
+    if (!line) {
+        return -1;
+    }
+    
+    if (*line == '\0') {
+        return -1;
+    }
+
 	for (cnt = 1, fQuote = 0, ptr = line; *ptr; ptr++) {
 		if (fQuote) {
 			if (*ptr == CSV_QUOTE) {
@@ -4346,7 +4354,8 @@ char **stb_parse_csv(const char *line, const char delim, int *nrfields)
 	}
 
 	*bptr = NULL;
-	free(tmp);
+    if (tmp)
+	   free(tmp);
 	return buf;
 }
 
