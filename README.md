@@ -18,9 +18,7 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
-* stb_shannon (Shannon Index a.k.a. Shannon's diversity index, the Shannon–Wiener index, 
-*             the Shannon–Weaver index, the Shannon entropy). Pilou evenness, stb_jaccard
-*             (Jaccard similarity index, sometimes called the Jaccard similarity coefficient), simple basic hash table
+* stb_shannon (Shannon's diversity index, Pilou evenness, stb_simpson (Simpson's Diversity Index), stb_jaccard (Jaccard similarity index), stb_bray_curtis (Bray–Curtis dissimilarity) and stb_create_htable a simple basic hash table
 * stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
 * stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
 * stb_pdf_binom and stb_pdf_pois, the binomial and poison probability density functions
