@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.23  stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)
         1.22  stb_shannon, stb_simpson, stb_jaccard, stb_bray_curtis, simple hash table
         1.21  stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
         1.20  stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
@@ -487,6 +488,9 @@ STB_EXTERN void stb_ttest(double *data1, int n1, double *data2, int n2, double *
  */
 STB_EXTERN void stb_uttest(double *data1, int n1, double *data2, int n2, double *t, double *p);
 
+// moderated ttest using a posterior variance estimated using stb_fit_f_dist
+STB_EXTERN void stb_moderated_ttest(double *data1, int n1, double *data2, int n2, double pvar, double pdf2, double *t, double *p)
+
 /* Given  two arrays  of data (length n1 and n2), this routine  returns  its  f value and its significance (p) as probabiilty */
 STB_EXTERN void stb_ftest(double *data1, int n1, double *data2, int n2, double *f, double *p);
 
@@ -952,6 +956,31 @@ Max.   :5.667   Max.   :5.167   Max.   :5.667
 STB_EXTERN void stb_qnorm_matrix(STB_MAT *original);
 STB_EXTERN void stb_qnorm(double **data, int rows, int columns);
 
+/* RSE Normalization
+ *  STB_MAT *counts_A;
+ *  int n;
+ * counts_A = stb_matrix_from_file(argv[1]);
+ * 
+ *  double *scaling_factors_A;
+ *  double *common_means_A;
+ *  double *common_vars_A;
+ *
+ *  calc_geometric_scaling_factors(counts_A, &scaling_factors_A);
+ *
+ *  meanvar_counts_to_common_scale(counts_A, scaling_factors_A, &common_means_A, &common_vars_A);
+ */
+
+/*this function estimates the size factors
+   as follows: Each column is divided by the geometric means of the rows. The median
+   (or, ir requested, another location estimator)
+   of these ratios (skipping the genes with a geometric mean of zero) is used as the
+   size factor for this column.
+   */
+STB_EXTERN void stb_calc_geometric_scaling_factors(STB_MAT *counts, double **scaling_factors);
+
+// Transform raw counts to the common scale. This is the actual RSE normalization
+STB_EXTERN void stb_meanvar_counts_to_common_scale(STB_MAT *counts, double *scaling_factors, double **means, double **vars);
+
 /* Perform quantile normalization between columns with a reference, making the distribution of original equal to that of the reference
 In statistics, quantile normalization is a technique for making two distributions identical in statistical properties.
 
@@ -1050,6 +1079,9 @@ STB_EXTERN double stb_euclidean_distance(const double *a, const double *b, const
 
 /* Most of the time, this is sufficient and slightly faster calculate the sqr euclidean distance between two points */
 STB_EXTERN double stb_euclidean_distance_sqr(const double *a, const double *b, const int size);
+
+/* Cosine similarity */
+STB_EXTERN double stb_cosine_similarity(const double *a, const double *b, const int size);
 
 /* K-Means++ data clustering
  * x[n][d] = the data points
@@ -1984,6 +2016,32 @@ void stb_uttest(double *data1, int n1, double *data2, int n2, double *t, double 
 
 	/* one sided! multiply by two for two sided */
 	*p = stb_cdf_student_t(-1 * (*t), degrees_of_freedom);
+}
+
+// moderated ttest using a posterior variance estimated using stb_fit_f_dist
+void stb_moderated_ttest(double *data1, int n1, double *data2, int n2, double pvar, double pdf2, double *t, double *p)
+{
+    double mean1;
+    double mean2;
+    double var1;
+    double var2;
+    double degrees_of_freedom;
+    double combined_variance;
+
+    stb_meanvar(data1, n1, &mean1, &var1);
+    stb_meanvar(data2, n2, &mean2, &var2);
+
+    degrees_of_freedom = n1 + n2 - 2;
+    combined_variance = ((n1 - 1) * var1 + (n2 - 1) * var2) / degrees_of_freedom;
+
+    // The posterior variance is acombination of an estimate obtained from the prior distribution and the combined variance
+    double posterior_variance = (combined_variance * degrees_of_freedom + pvar * pdf2) / (degrees_of_freedom + pdf2);
+
+    *t = (mean1 - mean2) / sqrt(posterior_variance * (1.0 / n1 + 1.0 / n2));
+    *t = fabs(*t);
+
+    /* one sided ! multiply by two for two sided */
+    *p = stb_cdf_student_t(-1 * (*t), degrees_of_freedom);
 }
 
 /* Given  two arrays  of data (length n1 and n2), this routine  returns  its  f value and its significance (p) as probabiilty */
@@ -5497,6 +5555,21 @@ double stb_euclidean_distance_sqr(const double *a, const double *b, const int si
     return dist;
 }
 
+double stb_cosine_similarity(const double *a, const double *b, const int size)
+{
+    double mul = 0.0, d_a = 0.0, d_b = 0.0 ;
+
+    for(int i = 0; i < size; ++i)
+    {
+        mul += a[i] * b[i] ;
+        d_a += a[i] * a[i] ;
+        d_b += b[i] * b[i] ;
+    }
+
+    return mul / (sqrt(d_a * d_b)) ;
+}
+
+
 double sigmoid(double x) {
     return 1.0 / (1.0 + exp(-x));
 }
@@ -7310,6 +7383,91 @@ double stb_bray_curtis(char **setA, double *c_setA, size_t n_setA, char **setB, 
     stb_JHT_free(JHT);
 
     return 1 - (2 * lesser_sum) / (sumA + sumB);
+}
+
+/* RSE Normalization
+ *  STB_MAT *counts_A;
+ *  int n;
+ * counts_A = stb_matrix_from_file(argv[1]);
+ * 
+ *  double *scaling_factors_A;
+ *  double *common_means_A;
+ *  double *common_vars_A;
+ *
+ *  calc_geometric_scaling_factors(counts_A, &scaling_factors_A);
+ *
+ *  meanvar_counts_to_common_scale(counts_A, scaling_factors_A, &common_means_A, &common_vars_A);
+ */
+// counts are scaled via the median of the geometric means of fragment counts across all libraries, as described in Anders and Huber (Genome Biology, 2010). This policy identical to the one used by DESeq.
+/*this function estimates the size factors
+   as follows: Each column is divided by the geometric means of the rows. The median
+   (or, ir requested, another location estimator)
+   of these ratios (skipping the genes with a geometric mean of zero) is used as the
+   size factor for this column.
+   */
+void stb_calc_geometric_scaling_factors(STB_MAT *counts, double **scaling_factors)
+{
+    const int number_of_genes = counts->rows;
+    const int number_of_samples = counts->columns;
+
+    STB_MAT *counts_dup = stb_dup_matrix(counts);
+
+    double *log_geometric_means = calloc(number_of_genes, sizeof(double));
+    double *scale_factors = calloc(number_of_samples, sizeof(double));
+    double *ratios = calloc(number_of_samples, sizeof(double));
+
+    double constant = (1.0 / number_of_samples);
+    for (int i = 0; i < number_of_genes; i++) {
+        // Calculate pseudo-reference values
+        for (int v = 0; v < number_of_samples; v++) {
+            /* The gemetric means across samples is
+             * product(data[i][j]) ^ (1 / number_of_samples)
+             * in log space it is
+             * sum data[i][j] * (1 / number_of_samples)
+             */
+            log_geometric_means[i] += log(fmax(counts->data[i][v], DESEQ_TINY)) * constant;
+        }
+        // Determine ratio
+        for (int j = 0; j < number_of_samples; j++) {
+            //  the ratios of the j-th sample's counts to those of the pseudo-reference
+            counts_dup->data[i][j] = log(fmax(counts->data[i][j], DESEQ_TINY)) - log_geometric_means[i];
+        }
+    }
+
+    STB_MAT *counts_trans;
+    stb_transpose_matrix(counts_dup, &counts_trans);
+    for (int j = 0; j < number_of_samples; j++) {
+        // scaling factor estimate is computed as the median of the ratios (count/geometric mean) returning to non log space
+        scale_factors[j] = exp(stb_median(counts_trans->data[j], number_of_genes));
+    }
+
+    *scaling_factors = scale_factors;
+
+    stb_free_matrix(counts_dup);
+    stb_free_matrix(counts_trans);
+
+    free(log_geometric_means);
+    free(ratios);
+}
+
+// Transform raw counts to the common scale
+void stb_meanvar_counts_to_common_scale(STB_MAT *counts, double *scaling_factors, double **means, double **vars)
+{
+    const int number_of_genes = counts->rows;
+    const int number_of_samples = counts->columns;
+
+    double *local_means = calloc(number_of_genes, sizeof(double));
+    double *local_vars = calloc(number_of_genes, sizeof(double));
+    for (int i = 0; i < number_of_genes; i++) {
+        // Transform raw counts to the common scale
+        for (int j = 0; j < number_of_samples; j++) {
+            counts->data[i][j] /= scaling_factors[j];
+        }
+        stb_meanvar(counts->data[i], number_of_samples, &local_means[i], &local_vars[i]);
+    }
+
+    *means = local_means;
+    *vars = local_vars;
 }
 
 #endif //STB_STATS_DEFINE
