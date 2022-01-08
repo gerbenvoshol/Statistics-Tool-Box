@@ -18,6 +18,7 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)
 * stb_shannon (Shannon's diversity index, Pilou evenness, stb_simpson (Simpson's Diversity Index), stb_jaccard (Jaccard similarity index), stb_bray_curtis (Bray–Curtis dissimilarity) and stb_create_htable a simple basic hash table
 * stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
 * stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
@@ -59,5 +60,5 @@ CITATION
 
 If you use this Tool-Box in a publication, please reference:
 
-Voshol, G.P. (2019). STB: A simple Statistics Tool Box (Version 1.11) [Software]. 
+Voshol, G.P. (2022). STB: A simple Statistics Tool Box (Version 1.23) [Software]. 
 Available from https://github.com/gerbenvoshol/Statistics-Tool-Box
