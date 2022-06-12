@@ -489,7 +489,7 @@ STB_EXTERN void stb_ttest(double *data1, int n1, double *data2, int n2, double *
 STB_EXTERN void stb_uttest(double *data1, int n1, double *data2, int n2, double *t, double *p);
 
 // moderated ttest using a posterior variance estimated using stb_fit_f_dist
-STB_EXTERN void stb_moderated_ttest(double *data1, int n1, double *data2, int n2, double pvar, double pdf2, double *t, double *p)
+STB_EXTERN void stb_moderated_ttest(double *data1, int n1, double *data2, int n2, double pvar, double pdf2, double *t, double *p);
 
 /* Given  two arrays  of data (length n1 and n2), this routine  returns  its  f value and its significance (p) as probabiilty */
 STB_EXTERN void stb_ftest(double *data1, int n1, double *data2, int n2, double *f, double *p);
@@ -7384,6 +7384,8 @@ double stb_bray_curtis(char **setA, double *c_setA, size_t n_setA, char **setB, 
 
     return 1 - (2 * lesser_sum) / (sumA + sumB);
 }
+
+#define DESEQ_TINY (1e-8) // Tiny value (pseudo count) to add in order to avoid dealing with 0 counts
 
 /* RSE Normalization
  *  STB_MAT *counts_A;
