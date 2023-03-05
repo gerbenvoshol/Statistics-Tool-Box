@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.21 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.24 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,7 +18,8 @@
  ============================================================================
 
  Version History
-        1.23  stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)
+        1.24  renamed stb_
+	1.23  stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)
         1.22  stb_shannon, stb_simpson, stb_jaccard, stb_bray_curtis, simple hash table
         1.21  stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
         1.20  stb_fisher2x2 simple fisher exact test for 2x2 contigency tables
@@ -526,8 +527,11 @@ STB_EXTERN double stb_phi(double x);
  */
 STB_EXTERN double stb_benjamini_hochberg(int rank, int number_of_comparisons, double FDR);
 
-/* Returns the adjusted Bonferroni P-value, the advantage is that you don't need to have a sorted list of P-values,
- * However, bonferroni adjustment is extremely conservative and leads to many false negatives!
+/* Returns the adjusted Sidak corrected P-value, the advantage is that you don't need to have a sorted list of P-values,
+ */
+STB_EXTERN double stb_sidak(double p, int number_of_comparisons);
+
+/* Returns the adjusted bonferroni corrected P-value, the advantage is that you don't need to have a sorted list of P-values,
  */
 STB_EXTERN double stb_bonferroni(double p, int number_of_comparisons);
 
@@ -2731,7 +2735,6 @@ void stb_kruskal_wallis(double *data, int n, int *groups, int g, double *H, doub
 			printf("(Padj = %.4lf)\n", stb_bonferroni(2 * (1.0 - stb_phi(z)), ((double) g * ((double) g - 1.0)) / 2.0 ));
 			/* One sided */
 			// printf("%i vs %i: %f (P = %lf) ", i, j, z, (1.0 - stb_phi(z)));
-			// printf("(Padj = %.4lf)\n", stb_bonferroni((1.0 - stb_phi(z)), ((double) g * ((double) g - 1.0)) / 2.0 ));
 		}
 	}
 
@@ -2763,10 +2766,16 @@ double stb_benjamini_hochberg(int rank, int number_of_comparisons, double FDR)
 	return ((double) rank / (double) number_of_comparisons) * FDR;
 }
 
+/* Returns the adjusted Sidak P-value */
+double stb_sidak(double p, int number_of_comparisons)
+{
+	return (1.0 - pow(1.0 - p, (double) number_of_comparisons));
+}
+
 /* Returns the adjusted Bonferroni P-value */
 double stb_bonferroni(double p, int number_of_comparisons)
 {
-	return (1.0 - pow(1.0 - p, (double) number_of_comparisons));
+	return p / (double) number_of_comparisons;
 }
 
 double stb_log_hypergeometric_prob(int a,int b,int c,int d) 
