@@ -18,7 +18,7 @@
  ============================================================================
 
  Version History
-        1.24  renamed stb_
+        1.24  Corrected stb_bonferroni and stb_sidak
 	1.23  stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)
         1.22  stb_shannon, stb_simpson, stb_jaccard, stb_bray_curtis, simple hash table
         1.21  stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
