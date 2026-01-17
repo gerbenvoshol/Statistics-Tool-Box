@@ -96,6 +96,10 @@
 #define UINT32_MAX (0xffffffff)
 #endif
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #define IS_ODD(n) (n & 1)
 #define IS_EVEN(n) !IS_ODD(n)
 
@@ -7685,7 +7689,7 @@ void stb_kdtree_destroy(stb_kdtree *tree) {
 
 static void stb_tsne_compute_pairwise_affinities(double **x, int n, int p, double perplexity, double **P) {
     // Compute pairwise distances
-    double **D = stb_allocmat(n, n);
+    double **D = (double **)stb_allocmat(n, n, sizeof(double));
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
             double dist = 0.0;
@@ -7747,34 +7751,31 @@ static void stb_tsne_compute_pairwise_affinities(double **x, int n, int p, doubl
         }
     }
     
-    for (int i = 0; i < n; i++) {
-        free(D[i]);
-    }
-    free(D);
+    free(D);  // stb_allocmat allocated, single free
 }
 
 void stb_tsne(double **x, int n, int p, int n_components, double perplexity, 
               int max_iter, double learning_rate, double ***result) {
     // Allocate output
-    *result = stb_allocmat(n, n_components);
+    *result = (double **)stb_allocmat(n, n_components, sizeof(double));
     double **Y = *result;
     
     // Initialize Y with small random values
     uint64_t seed = 42;
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n_components; j++) {
-            Y[i][j] = (stb_randn(&seed) * 0.0001);
+            Y[i][j] = (stb_pcg32_gauss(&seed) * 0.0001);
         }
     }
     
     // Compute pairwise affinities
-    double **P = stb_allocmat(n, n);
+    double **P = (double **)stb_allocmat(n, n, sizeof(double));
     stb_tsne_compute_pairwise_affinities(x, n, p, perplexity, P);
     
     // Gradient descent with momentum
-    double **dY = stb_allocmat(n, n_components);
-    double **gains = stb_allocmat(n, n_components);
-    double **Y_prev = stb_allocmat(n, n_components);
+    double **dY = (double **)stb_allocmat(n, n_components, sizeof(double));
+    double **gains = (double **)stb_allocmat(n, n_components, sizeof(double));
+    double **Y_prev = (double **)stb_allocmat(n, n_components, sizeof(double));
     
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n_components; j++) {
@@ -7788,7 +7789,7 @@ void stb_tsne(double **x, int n, int p, int n_components, double perplexity,
         if (iter == 250) momentum = 0.8;
         
         // Compute Q (low-dimensional affinities)
-        double **Q = stb_allocmat(n, n);
+        double **Q = (double **)stb_allocmat(n, n, sizeof(double));
         double sum_Q = 0.0;
         for (int i = 0; i < n; i++) {
             for (int j = 0; j < n; j++) {
@@ -7848,23 +7849,14 @@ void stb_tsne(double **x, int n, int p, int n_components, double perplexity,
             }
         }
         
-        for (int i = 0; i < n; i++) {
-            free(Q[i]);
-        }
-        free(Q);
+        free(Q);  // stb_allocmat allocated, single free
     }
     
     // Cleanup
-    for (int i = 0; i < n; i++) {
-        free(P[i]);
-        free(dY[i]);
-        free(gains[i]);
-        free(Y_prev[i]);
-    }
-    free(P);
-    free(dY);
-    free(gains);
-    free(Y_prev);
+    free(P);       // stb_allocmat allocated, single free
+    free(dY);      // stb_allocmat allocated, single free
+    free(gains);   // stb_allocmat allocated, single free
+    free(Y_prev);  // stb_allocmat allocated, single free
 }
 
 /* ============================================================================
@@ -7927,14 +7919,14 @@ static void stb_umap_compute_membership_strengths(double **x, int n, int p, int 
 void stb_umap(double **x, int n, int p, int n_components, int n_neighbors,
               double min_dist, int n_epochs, double ***result) {
     // Allocate output
-    *result = stb_allocmat(n, n_components);
+    *result = (double **)stb_allocmat(n, n_components, sizeof(double));
     double **Y = *result;
     
     // Initialize embedding with random values
     uint64_t seed = 42;
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n_components; j++) {
-            Y[i][j] = (stb_randn(&seed) * 10.0);
+            Y[i][j] = (stb_pcg32_gauss(&seed) * 10.0);
         }
     }
     
@@ -7947,6 +7939,9 @@ void stb_umap(double **x, int n, int p, int n_components, int n_neighbors,
     double a = 1.929;  // Curve parameters based on min_dist
     double b = 0.7915;
     double initial_alpha = 1.0;
+    
+    // Suppress unused parameter warning
+    (void)min_dist;
     
     // Optimize embedding
     for (int epoch = 0; epoch < n_epochs; epoch++) {
@@ -7979,7 +7974,7 @@ void stb_umap(double **x, int n, int p, int n_components, int n_neighbors,
                 }
                 
                 // Sample negative edges
-                int neg_sample = (int)(stb_rand(&seed) * n) % n;
+                int neg_sample = (int)(stb_pcg32_uniform(&seed) * n) % n;
                 if (neg_sample != i && neg_sample != neighbor) {
                     double neg_dist_sq = 0.0;
                     for (int d = 0; d < n_components; d++) {

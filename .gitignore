@@ -1,0 +1,18 @@
+# Build artifacts
+dim_reduce
+*.o
+
+# Test files
+test_*.txt
+test_*.gz
+
+# Editor/IDE files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
