@@ -18,6 +18,9 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
  ============================================================================
 
 Functions included are:
+* **stb_tsne** (t-SNE: t-Distributed Stochastic Neighbor Embedding with Barnes-Hut approximation)
+* **stb_umap** (UMAP: Uniform Manifold Approximation and Projection)
+* **stb_kdtree** KD-tree data structure for efficient nearest neighbor search (used by t-SNE and UMAP)
 * stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)
 * stb_shannon (Shannon's diversity index, Pilou evenness, stb_simpson (Simpson's Diversity Index), stb_jaccard (Jaccard similarity index), stb_bray_curtis (Bray–Curtis dissimilarity) and stb_create_htable a simple basic hash table
 * stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
@@ -56,9 +59,32 @@ Functions included are:
 * stb_benjamini_hochberg
 * stb_chisqr, stb_chisqr_matrix, stb_gtest, stb_gtest_matrix, 
 
+## Example Programs
+
+### dim_reduce - Generic Dimension Reduction Tool
+
+A flexible C program demonstrating the usage of PCA, t-SNE, and UMAP for dimensionality reduction on tabular data.
+
+**Features:**
+- Support for PCA, t-SNE, and UMAP algorithms
+- TAB-delimited and gzipped file support
+- Row-major and column-major data orientations
+- Automatic Z-score normalization
+- Pre-PCA option for high-dimensional data
+
+See [DIM_REDUCE_README.md](DIM_REDUCE_README.md) for detailed usage instructions.
+
+**Quick start:**
+```bash
+make
+./dim_reduce data.txt -a pca -o output.txt
+./dim_reduce data.txt -a tsne --perplexity 30 -o output.txt
+./dim_reduce data.txt -a umap --neighbors 15 -o output.txt
+```
+
 CITATION
 
 If you use this Tool-Box in a publication, please reference:
 
-Voshol, G.P. (2022). STB: A simple Statistics Tool Box (Version 1.23) [Software]. 
+Voshol, G.P. (2024). STB: A simple Statistics Tool Box (Version 1.25) [Software]. 
 Available from https://github.com/gerbenvoshol/Statistics-Tool-Box
