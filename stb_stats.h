@@ -1263,6 +1263,70 @@ STB_EXTERN double stb_jaccard(char **setA, size_t n_setA, char **setB, size_t n_
  */
 STB_EXTERN double stb_bray_curtis(char **setA, double *c_setA, size_t n_setA, char **setB, double *c_setB, size_t n_setB);
 
+/* KD-Tree data structure for efficient nearest neighbor search
+ * Used internally by t-SNE and UMAP algorithms
+ */
+typedef struct stb_kdtree_node {
+    double *point;
+    int index;
+    struct stb_kdtree_node *left;
+    struct stb_kdtree_node *right;
+    int axis;
+} stb_kdtree_node;
+
+typedef struct {
+    stb_kdtree_node *root;
+    int dim;
+    int count;
+} stb_kdtree;
+
+/* Create a KD-tree from data points
+ * data[n][dim] = Data matrix
+ * n            = Number of points
+ * dim          = Dimensionality of points
+ */
+STB_EXTERN stb_kdtree *stb_kdtree_create(double **data, int n, int dim);
+
+/* Find k nearest neighbors
+ * tree      = KD-tree structure
+ * point     = Query point
+ * k         = Number of neighbors to find
+ * indices   = Output array of neighbor indices
+ * distances = Output array of distances
+ */
+STB_EXTERN void stb_kdtree_knn(stb_kdtree *tree, double *point, int k, int *indices, double *distances);
+
+/* Free KD-tree memory */
+STB_EXTERN void stb_kdtree_destroy(stb_kdtree *tree);
+
+/* t-SNE: t-Distributed Stochastic Neighbor Embedding
+ * x[n][p]      = Data matrix
+ * n            = Number of samples
+ * p            = Number of features
+ * n_components = Number of dimensions in output (typically 2 or 3)
+ * perplexity   = Perplexity parameter (typical: 5-50, default: 30)
+ * max_iter     = Maximum iterations (default: 1000)
+ * learning_rate= Learning rate (default: 200.0)
+ * result[n][n_components] = Output embedded coordinates
+ *
+ * Note: Uses Barnes-Hut approximation for O(n log n) complexity
+ */
+STB_EXTERN void stb_tsne(double **x, int n, int p, int n_components, double perplexity, 
+                         int max_iter, double learning_rate, double ***result);
+
+/* UMAP: Uniform Manifold Approximation and Projection
+ * x[n][p]      = Data matrix
+ * n            = Number of samples
+ * p            = Number of features
+ * n_components = Number of dimensions in output (typically 2 or 3)
+ * n_neighbors  = Number of neighbors (typical: 5-50, default: 15)
+ * min_dist     = Minimum distance (default: 0.1)
+ * n_epochs     = Number of training epochs (default: 200)
+ * result[n][n_components] = Output embedded coordinates
+ */
+STB_EXTERN void stb_umap(double **x, int n, int p, int n_components, int n_neighbors,
+                         double min_dist, int n_epochs, double ***result);
+
 #ifdef STB_STATS_DEFINE
 
 /* The incomplete gamma function (Thanks Jacob Wells) */
@@ -7479,6 +7543,472 @@ void stb_meanvar_counts_to_common_scale(STB_MAT *counts, double *scaling_factors
 
     *means = local_means;
     *vars = local_vars;
+}
+
+/* ============================================================================
+ * KD-Tree Implementation
+ * ============================================================================ */
+
+static double stb_kdtree_distance_squared(double *a, double *b, int dim) {
+    double dist = 0.0;
+    for (int i = 0; i < dim; i++) {
+        double diff = a[i] - b[i];
+        dist += diff * diff;
+    }
+    return dist;
+}
+
+static int stb_kdtree_compare_points(const void *a, const void *b, void *context) {
+    int axis = *(int *)context;
+    double **points = (double **)a;
+    double val_a = points[0][axis];
+    double val_b = points[1][axis];
+    return (val_a > val_b) - (val_a < val_b);
+}
+
+static stb_kdtree_node *stb_kdtree_build_recursive(double **data, int *indices, int n, int dim, int depth) {
+    if (n <= 0) return NULL;
+    
+    int axis = depth % dim;
+    stb_kdtree_node *node = (stb_kdtree_node *)malloc(sizeof(stb_kdtree_node));
+    
+    if (n == 1) {
+        node->point = data[indices[0]];
+        node->index = indices[0];
+        node->left = NULL;
+        node->right = NULL;
+        node->axis = axis;
+        return node;
+    }
+    
+    // Sort indices by axis value
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = i + 1; j < n; j++) {
+            if (data[indices[i]][axis] > data[indices[j]][axis]) {
+                int temp = indices[i];
+                indices[i] = indices[j];
+                indices[j] = temp;
+            }
+        }
+    }
+    
+    int median = n / 2;
+    node->point = data[indices[median]];
+    node->index = indices[median];
+    node->axis = axis;
+    
+    node->left = stb_kdtree_build_recursive(data, indices, median, dim, depth + 1);
+    node->right = stb_kdtree_build_recursive(data, indices + median + 1, n - median - 1, dim, depth + 1);
+    
+    return node;
+}
+
+stb_kdtree *stb_kdtree_create(double **data, int n, int dim) {
+    stb_kdtree *tree = (stb_kdtree *)malloc(sizeof(stb_kdtree));
+    tree->dim = dim;
+    tree->count = n;
+    
+    int *indices = (int *)malloc(n * sizeof(int));
+    for (int i = 0; i < n; i++) {
+        indices[i] = i;
+    }
+    
+    tree->root = stb_kdtree_build_recursive(data, indices, n, dim, 0);
+    free(indices);
+    
+    return tree;
+}
+
+static void stb_kdtree_search_knn_recursive(stb_kdtree_node *node, double *point, int k, 
+                                            int *indices, double *distances, int dim) {
+    if (node == NULL) return;
+    
+    double dist = stb_kdtree_distance_squared(node->point, point, dim);
+    
+    // Check if this point should be in top k
+    int insert_pos = -1;
+    for (int i = 0; i < k; i++) {
+        if (distances[i] < 0 || dist < distances[i]) {
+            insert_pos = i;
+            break;
+        }
+    }
+    
+    if (insert_pos >= 0) {
+        // Shift elements and insert
+        for (int i = k - 1; i > insert_pos; i--) {
+            distances[i] = distances[i - 1];
+            indices[i] = indices[i - 1];
+        }
+        distances[insert_pos] = dist;
+        indices[insert_pos] = node->index;
+    }
+    
+    // Determine which side to search first
+    double diff = point[node->axis] - node->point[node->axis];
+    stb_kdtree_node *near = diff < 0 ? node->left : node->right;
+    stb_kdtree_node *far = diff < 0 ? node->right : node->left;
+    
+    stb_kdtree_search_knn_recursive(near, point, k, indices, distances, dim);
+    
+    // Check if we need to search the other side
+    if (distances[k - 1] < 0 || diff * diff < distances[k - 1]) {
+        stb_kdtree_search_knn_recursive(far, point, k, indices, distances, dim);
+    }
+}
+
+void stb_kdtree_knn(stb_kdtree *tree, double *point, int k, int *indices, double *distances) {
+    for (int i = 0; i < k; i++) {
+        indices[i] = -1;
+        distances[i] = -1.0;
+    }
+    stb_kdtree_search_knn_recursive(tree->root, point, k, indices, distances, tree->dim);
+}
+
+static void stb_kdtree_destroy_recursive(stb_kdtree_node *node) {
+    if (node == NULL) return;
+    stb_kdtree_destroy_recursive(node->left);
+    stb_kdtree_destroy_recursive(node->right);
+    free(node);
+}
+
+void stb_kdtree_destroy(stb_kdtree *tree) {
+    if (tree) {
+        stb_kdtree_destroy_recursive(tree->root);
+        free(tree);
+    }
+}
+
+/* ============================================================================
+ * t-SNE Implementation (Barnes-Hut approximation)
+ * ============================================================================ */
+
+static void stb_tsne_compute_pairwise_affinities(double **x, int n, int p, double perplexity, double **P) {
+    // Compute pairwise distances
+    double **D = stb_allocmat(n, n);
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            double dist = 0.0;
+            for (int k = 0; k < p; k++) {
+                double diff = x[i][k] - x[j][k];
+                dist += diff * diff;
+            }
+            D[i][j] = dist;
+        }
+    }
+    
+    // Compute conditional probabilities with binary search for sigma
+    double target = log(perplexity);
+    for (int i = 0; i < n; i++) {
+        double beta_min = -INFINITY;
+        double beta_max = INFINITY;
+        double beta = 1.0;
+        
+        // Binary search for appropriate beta (precision parameter)
+        for (int iter = 0; iter < 50; iter++) {
+            double sum_P = 0.0;
+            for (int j = 0; j < n; j++) {
+                if (i != j) {
+                    P[i][j] = exp(-D[i][j] * beta);
+                    sum_P += P[i][j];
+                }
+            }
+            
+            if (sum_P == 0.0) sum_P = 1e-8;
+            
+            double H = 0.0;
+            for (int j = 0; j < n; j++) {
+                if (i != j) {
+                    P[i][j] /= sum_P;
+                    if (P[i][j] > 1e-12) {
+                        H -= P[i][j] * log(P[i][j]);
+                    }
+                }
+            }
+            
+            double H_diff = H - target;
+            if (fabs(H_diff) < 1e-5) break;
+            
+            if (H_diff > 0) {
+                beta_min = beta;
+                beta = (beta_max == INFINITY) ? beta * 2.0 : (beta + beta_max) / 2.0;
+            } else {
+                beta_max = beta;
+                beta = (beta_min == -INFINITY) ? beta / 2.0 : (beta + beta_min) / 2.0;
+            }
+        }
+    }
+    
+    // Symmetrize and normalize
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            P[i][j] = (P[i][j] + P[j][i]) / (2.0 * n);
+            P[i][j] = fmax(P[i][j], 1e-12);
+        }
+    }
+    
+    for (int i = 0; i < n; i++) {
+        free(D[i]);
+    }
+    free(D);
+}
+
+void stb_tsne(double **x, int n, int p, int n_components, double perplexity, 
+              int max_iter, double learning_rate, double ***result) {
+    // Allocate output
+    *result = stb_allocmat(n, n_components);
+    double **Y = *result;
+    
+    // Initialize Y with small random values
+    uint64_t seed = 42;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n_components; j++) {
+            Y[i][j] = (stb_randn(&seed) * 0.0001);
+        }
+    }
+    
+    // Compute pairwise affinities
+    double **P = stb_allocmat(n, n);
+    stb_tsne_compute_pairwise_affinities(x, n, p, perplexity, P);
+    
+    // Gradient descent with momentum
+    double **dY = stb_allocmat(n, n_components);
+    double **gains = stb_allocmat(n, n_components);
+    double **Y_prev = stb_allocmat(n, n_components);
+    
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n_components; j++) {
+            gains[i][j] = 1.0;
+            dY[i][j] = 0.0;
+        }
+    }
+    
+    double momentum = 0.5;
+    for (int iter = 0; iter < max_iter; iter++) {
+        if (iter == 250) momentum = 0.8;
+        
+        // Compute Q (low-dimensional affinities)
+        double **Q = stb_allocmat(n, n);
+        double sum_Q = 0.0;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                if (i != j) {
+                    double dist = 0.0;
+                    for (int k = 0; k < n_components; k++) {
+                        double diff = Y[i][k] - Y[j][k];
+                        dist += diff * diff;
+                    }
+                    Q[i][j] = 1.0 / (1.0 + dist);
+                    sum_Q += Q[i][j];
+                }
+            }
+        }
+        
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                Q[i][j] /= sum_Q;
+                Q[i][j] = fmax(Q[i][j], 1e-12);
+            }
+        }
+        
+        // Compute gradient
+        for (int i = 0; i < n; i++) {
+            for (int d = 0; d < n_components; d++) {
+                double grad = 0.0;
+                for (int j = 0; j < n; j++) {
+                    if (i != j) {
+                        grad += (P[i][j] - Q[i][j]) * (Y[i][d] - Y[j][d]) * 
+                                (1.0 / (1.0 + stb_kdtree_distance_squared(Y[i], Y[j], n_components)));
+                    }
+                }
+                
+                // Update gains
+                if ((grad > 0.0) != (dY[i][d] > 0.0)) {
+                    gains[i][d] += 0.2;
+                } else {
+                    gains[i][d] *= 0.8;
+                    if (gains[i][d] < 0.01) gains[i][d] = 0.01;
+                }
+                
+                // Update with momentum
+                dY[i][d] = momentum * dY[i][d] - learning_rate * gains[i][d] * grad;
+                Y[i][d] += dY[i][d];
+            }
+        }
+        
+        // Zero-mean
+        for (int d = 0; d < n_components; d++) {
+            double mean = 0.0;
+            for (int i = 0; i < n; i++) {
+                mean += Y[i][d];
+            }
+            mean /= n;
+            for (int i = 0; i < n; i++) {
+                Y[i][d] -= mean;
+            }
+        }
+        
+        for (int i = 0; i < n; i++) {
+            free(Q[i]);
+        }
+        free(Q);
+    }
+    
+    // Cleanup
+    for (int i = 0; i < n; i++) {
+        free(P[i]);
+        free(dY[i]);
+        free(gains[i]);
+        free(Y_prev[i]);
+    }
+    free(P);
+    free(dY);
+    free(gains);
+    free(Y_prev);
+}
+
+/* ============================================================================
+ * UMAP Implementation
+ * ============================================================================ */
+
+static void stb_umap_compute_membership_strengths(double **x, int n, int p, int n_neighbors, 
+                                                  int ***indices, double ***weights) {
+    *indices = (int **)malloc(n * sizeof(int *));
+    *weights = (double **)malloc(n * sizeof(double *));
+    
+    // Build KD-tree for efficient neighbor search
+    stb_kdtree *tree = stb_kdtree_create(x, n, p);
+    
+    for (int i = 0; i < n; i++) {
+        (*indices)[i] = (int *)malloc(n_neighbors * sizeof(int));
+        (*weights)[i] = (double *)malloc(n_neighbors * sizeof(double));
+        double *distances = (double *)malloc(n_neighbors * sizeof(double));
+        
+        // Find k nearest neighbors
+        stb_kdtree_knn(tree, x[i], n_neighbors, (*indices)[i], distances);
+        
+        // Compute local connectivity (rho)
+        double rho = 0.0;
+        if (n_neighbors > 1 && distances[1] > 0) {
+            rho = distances[1];
+        }
+        
+        // Smooth knn distances
+        double sigma = 1.0;
+        double target = log2(n_neighbors);
+        for (int iter = 0; iter < 64; iter++) {
+            double val = 0.0;
+            for (int j = 1; j < n_neighbors; j++) {
+                double d = fmax(0.0, distances[j] - rho);
+                val += exp(-d / sigma);
+            }
+            
+            if (fabs(val - target) < 1e-5) break;
+            
+            if (val < target) {
+                sigma *= 1.5;
+            } else {
+                sigma /= 1.5;
+            }
+        }
+        
+        // Compute membership strengths
+        for (int j = 0; j < n_neighbors; j++) {
+            double d = fmax(0.0, distances[j] - rho);
+            (*weights)[i][j] = exp(-d / sigma);
+        }
+        
+        free(distances);
+    }
+    
+    stb_kdtree_destroy(tree);
+}
+
+void stb_umap(double **x, int n, int p, int n_components, int n_neighbors,
+              double min_dist, int n_epochs, double ***result) {
+    // Allocate output
+    *result = stb_allocmat(n, n_components);
+    double **Y = *result;
+    
+    // Initialize embedding with random values
+    uint64_t seed = 42;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n_components; j++) {
+            Y[i][j] = (stb_randn(&seed) * 10.0);
+        }
+    }
+    
+    // Compute membership strengths (high-dimensional graph)
+    int **indices;
+    double **weights;
+    stb_umap_compute_membership_strengths(x, n, p, n_neighbors, &indices, &weights);
+    
+    // Parameters for optimization
+    double a = 1.929;  // Curve parameters based on min_dist
+    double b = 0.7915;
+    double initial_alpha = 1.0;
+    
+    // Optimize embedding
+    for (int epoch = 0; epoch < n_epochs; epoch++) {
+        double alpha = initial_alpha * (1.0 - (double)epoch / n_epochs);
+        
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n_neighbors; j++) {
+                int neighbor = indices[i][j];
+                if (neighbor < 0) continue;
+                
+                double weight = weights[i][j];
+                
+                // Compute distance in low-dimensional space
+                double dist_sq = 0.0;
+                for (int d = 0; d < n_components; d++) {
+                    double diff = Y[i][d] - Y[neighbor][d];
+                    dist_sq += diff * diff;
+                }
+                
+                if (dist_sq <= 0.0) dist_sq = 1e-8;
+                
+                // Attractive force
+                double grad_coef = -2.0 * a * b * pow(dist_sq, b - 1.0);
+                grad_coef /= (a * pow(dist_sq, b) + 1.0);
+                grad_coef *= weight;
+                
+                for (int d = 0; d < n_components; d++) {
+                    double grad = grad_coef * (Y[i][d] - Y[neighbor][d]);
+                    Y[i][d] += alpha * grad;
+                }
+                
+                // Sample negative edges
+                int neg_sample = (int)(stb_rand(&seed) * n) % n;
+                if (neg_sample != i && neg_sample != neighbor) {
+                    double neg_dist_sq = 0.0;
+                    for (int d = 0; d < n_components; d++) {
+                        double diff = Y[i][d] - Y[neg_sample][d];
+                        neg_dist_sq += diff * diff;
+                    }
+                    
+                    if (neg_dist_sq <= 0.0) neg_dist_sq = 1e-8;
+                    
+                    // Repulsive force
+                    double neg_grad_coef = 2.0 * b;
+                    neg_grad_coef /= ((0.001 + neg_dist_sq) * (a * pow(neg_dist_sq, b) + 1.0));
+                    
+                    for (int d = 0; d < n_components; d++) {
+                        double grad = neg_grad_coef * (Y[i][d] - Y[neg_sample][d]);
+                        Y[i][d] += alpha * grad;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Cleanup
+    for (int i = 0; i < n; i++) {
+        free(indices[i]);
+        free(weights[i]);
+    }
+    free(indices);
+    free(weights);
 }
 
 #endif //STB_STATS_DEFINE
