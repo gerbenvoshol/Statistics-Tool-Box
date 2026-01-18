@@ -2119,20 +2119,143 @@ STB_EXTERN double stb_pcg32_beta(uint64_t *seed, double a, double b);
 STB_EXTERN double stb_pcg32_nbinom_mu(uint64_t *seed, double size, double mu);
 
 /**
- * Confidence Sequence Method.
- *
- * See "A simple method for implementing Monte Carlo tests,"
- * Ding, Gandy, and Hahn, 2017 (https://arxiv.org/abs/1611.01675).
- *
- * Given n trials and s successes, can we conclude that the success rate
- * differs from alpha with exp(log_eps) false positive rate?
- *
- * Output the current log confidence level in OUT_log_level if non-NULL.
+ * Confidence Sequence Method (CSM) for Monte Carlo stopping
+ * 
+ * Purpose: Determines when to stop Monte Carlo simulations with statistical confidence
+ *          Provides rigorous false positive control for sequential testing
+ * 
+ * Method: Confidence sequences (time-uniform confidence intervals)
+ *         Based on anytime-valid p-values that control error across all stopping times
+ * 
+ * Statistical framework:
+ *   - Tests if empirical success rate differs from expected rate (alpha)
+ *   - Provides Type I error control at any stopping point (not just pre-determined n)
+ *   - More efficient than fixed-sample methods (can stop early)
+ * 
+ * Inputs:
+ *   n       - number of trials performed so far
+ *   alpha   - expected success rate under null hypothesis (0 < alpha < 1)
+ *   s       - number of successes observed
+ *   log_eps - log of desired false positive rate (typically log(0.05) ≈ -2.996)
+ * 
+ * Outputs:
+ *   OUT_log_level - current log confidence level (optional, can be NULL)
+ *                   More negative = stronger evidence against null
+ * 
+ * Returns: 1 if we can reject null hypothesis (success rate differs from alpha)
+ *          0 if we cannot reject (need more samples or rate matches alpha)
+ * 
+ * Interpretation:
+ *   - Return value 1: Observed rate significantly different from alpha
+ *   - Return value 0: Cannot conclude difference yet, may need more samples
+ *   - OUT_log_level < log_eps: reject null hypothesis
+ * 
+ * Applications:
+ *   - Stopping Monte Carlo simulations when confidence achieved
+ *   - Sequential hypothesis testing
+ *   - A/B testing with early stopping
+ *   - Adaptive clinical trials
+ *   - Quality control with sequential sampling
+ * 
+ * Advantages:
+ *   - Valid at any stopping time (no need to fix n in advance)
+ *   - Can stop early if signal is strong
+ *   - Rigorous Type I error control
+ *   - More efficient than fixed-sample tests
+ * 
+ * Example:
+ *   // Monte Carlo simulation with adaptive stopping
+ *   uint64_t trials = 0, successes = 0;
+ *   double expected_rate = 0.5;
+ *   double log_fpr = log(0.05);  // 5% false positive rate
+ *   double log_conf;
+ *   
+ *   while (trials < MAX_TRIALS) {
+ *       int result = run_simulation();
+ *       trials++;
+ *       if (result) successes++;
+ *       
+ *       // Check if we can stop
+ *       if (stb_csm(trials, expected_rate, successes, log_fpr, &log_conf)) {
+ *           printf("Significant difference detected after %llu trials\n", trials);
+ *           printf("Success rate: %.4f (expected: %.4f)\n",
+ *                  (double)successes/trials, expected_rate);
+ *           break;
+ *       }
+ *   }
+ * 
+ * Reference: Ding, Y., Gandy, A., & Hahn, G. (2017). A simple method for
+ *            implementing Monte Carlo tests. arXiv:1611.01675.
  */
 STB_EXTERN int stb_csm(uint64_t n, double alpha, uint64_t s, double log_eps, double *OUT_log_level);
 
-/* returns the number of combinations of t out of n and returns a matrix (2d array) of them
- * uses Knuth Algorithm T (section 2.7.1.3 from The Art of Computer Programming)
+/* Generate all combinations of t elements from n elements
+ * 
+ * Purpose: Enumerates all ways to choose t items from n items (n choose t)
+ *          Returns both the count and all actual combinations
+ * 
+ * Algorithm: Knuth's Algorithm T (The Art of Computer Programming, Vol. 4A)
+ *            Efficiently generates combinations in lexicographic order
+ * 
+ * Mathematical: C(n,t) = n! / (t!(n-t)!) combinations
+ *   - C(5,2) = 10: {0,1}, {0,2}, {0,3}, {0,4}, {1,2}, {1,3}, {1,4}, {2,3}, {2,4}, {3,4}
+ *   - C(10,3) = 120
+ *   - C(20,10) = 184,756
+ * 
+ * Inputs:
+ *   n - size of set to choose from (elements numbered 0 to n-1)
+ *   t - number of elements to choose (0 ≤ t ≤ n)
+ * 
+ * Outputs:
+ *   combinations - pointer to 2D array of all combinations (C(n,t) × t)
+ *                  Each row is one combination
+ *                  Must be freed by caller (single free() call)
+ * 
+ * Returns: Number of combinations = C(n,t)
+ * 
+ * Memory: Allocates C(n,t) × t integers
+ *         Can be large! C(30,15) = 155M requires ~2.5GB
+ * 
+ * Applications:
+ *   - Enumerating all possible subsets
+ *   - Feature selection (try all t-feature combinations)
+ *   - Multiple testing (all pairwise comparisons)
+ *   - Combinatorial optimization
+ *   - Graph theory (all edges, all cliques)
+ * 
+ * Bioinformatics applications:
+ *   - Gene set analysis (all k-gene combinations)
+ *   - Motif finding (all possible nucleotide combinations)
+ *   - Protein interaction networks (all protein pairs)
+ *   - SNP analysis (all marker combinations)
+ * 
+ * Example:
+ *   // Find all pairs of features
+ *   int **pairs;
+ *   int n_pairs = stb_combinations(10, 2, &pairs);
+ *   
+ *   printf("There are %d pairs from 10 features:\n", n_pairs);  // 45
+ *   for (int i = 0; i < n_pairs; i++) {
+ *       printf("Pair %d: feature %d and feature %d\n", 
+ *              i, pairs[i][0], pairs[i][1]);
+ *   }
+ *   
+ *   free(pairs);  // Single free for entire array
+ * 
+ * Warning: Grows very rapidly with n and t
+ *          C(100,50) = 10²⁹ - computationally infeasible
+ *          Check C(n,t) before calling to ensure feasibility
+ * 
+ * Complexity:
+ *   - Time: O(C(n,t) × t) to generate all combinations
+ *   - Space: O(C(n,t) × t) to store results
+ * 
+ * Note: Uses stb_allocmat for efficient single-malloc allocation
+ *       Combinations are 0-indexed (elements 0 to n-1)
+ *       Result can be freed with single free() call
+ * 
+ * Reference: Knuth, D. E. (2011). The Art of Computer Programming,
+ *            Volume 4A: Combinatorial Algorithms, Section 7.2.1.3.
  */
 STB_EXTERN int stb_combinations(int n, int t, int ***combinations);
 
@@ -3243,88 +3366,656 @@ STB_EXTERN int stb_dunique(double *values, double **counts, int len);
  */
 STB_EXTERN int stb_iunique(int *values, int **counts, int len);
 
-/**
- * Main entry point for creation of Jenks-Fisher natural breaks.
- * Port of Jenks/Fisher breaks originally created in C++ by Maarten Hilferink.
- * @param values array of the values, do not need to be sorted.
- * @param k number of breaks to create
- * @param len length of values array
- * @return Array with breaks
+/* Jenks Natural Breaks optimization
+ * 
+ * Purpose: Finds optimal breakpoints to classify data into k classes
+ *          Minimizes within-class variance and maximizes between-class variance
+ * 
+ * Algorithm: Jenks-Fisher natural breaks (dynamic programming)
+ *            O(k×n×log(n)) complexity using optimized implementation
+ * 
+ * Mathematical objective: Minimize Σ GVF (Goodness of Variance Fit)
+ *   - GVF = 1 - (SDAM / SDCM)
+ *   - SDAM = sum of squared deviations of class means from array mean
+ *   - SDCM = sum of squared deviations from class means
+ * 
+ * Inputs:
+ *   values - array of numerical values to classify (unsorted is fine)
+ *   len    - number of values in array
+ *   k      - number of classes to create
+ * 
+ * Returns: Array of k+1 breakpoints (including min and max)
+ *          Must be freed by caller
+ * 
+ * Breakpoints define k classes:
+ *   - Class 1: [breaks[0], breaks[1])
+ *   - Class 2: [breaks[1], breaks[2])
+ *   - ...
+ *   - Class k: [breaks[k-1], breaks[k]]
+ * 
+ * Applications:
+ *   - Choropleth map classification (cartography)
+ *   - Data binning and discretization
+ *   - Color scale optimization for heatmaps
+ *   - Gene expression level categorization
+ *   - Histogram bin optimization
+ *   - Natural grouping of continuous variables
+ * 
+ * Advantages:
+ *   - Optimal breaks that minimize within-group variance
+ *   - Finds natural groupings in data
+ *   - Better than equal-interval or quantile methods for clustered data
+ *   - Deterministic result (not random like k-means)
+ * 
+ * Bioinformatics applications:
+ *   - Categorizing gene expression levels (low/medium/high)
+ *   - Copy number variation classification (deletion/normal/amplification)
+ *   - Methylation level classification
+ *   - Heatmap color scale optimization
+ * 
+ * Example:
+ *   // Classify gene expression into 3 categories
+ *   double expression[] = {0.5, 0.8, 1.2, 1.5, 5.2, 5.8, 6.1, 
+ *                          15.3, 15.9, 16.2, 16.8};
+ *   int n = 11;
+ *   int n_classes = 3;
+ *   
+ *   double *breaks = stb_jenks(expression, n, n_classes);
+ *   
+ *   printf("Optimal breakpoints for %d classes:\n", n_classes);
+ *   printf("Low:    [%.2f, %.2f)\n", breaks[0], breaks[1]);
+ *   printf("Medium: [%.2f, %.2f)\n", breaks[1], breaks[2]);
+ *   printf("High:   [%.2f, %.2f]\n", breaks[2], breaks[3]);
+ *   // Might produce: Low [0.5,1.5), Medium [1.5,6.1), High [6.1,16.8]
+ *   
+ *   // Classify genes
+ *   for (int i = 0; i < n; i++) {
+ *       for (int j = 0; j < n_classes; j++) {
+ *           if (expression[i] >= breaks[j] && expression[i] < breaks[j+1]) {
+ *               printf("Gene %d (%.2f): Class %d\n", i, expression[i], j+1);
+ *               break;
+ *           }
+ *       }
+ *   }
+ *   
+ *   free(breaks);
+ * 
+ * Use in heatmaps:
+ *   // Create color scale for expression heatmap
+ *   double *all_values = flatten_matrix(expr_data, n_genes * n_samples);
+ *   double *breaks = stb_jenks(all_values, n_genes * n_samples, 5);
+ *   
+ *   // Use breaks to assign colors
+ *   for (int i = 0; i < 5; i++) {
+ *       assign_color_to_range(breaks[i], breaks[i+1], colors[i]);
+ *   }
+ * 
+ * Comparison to other methods:
+ *   - Equal interval: Simple but ignores data distribution
+ *   - Quantiles: Equal counts but may split natural groups
+ *   - Jenks: Optimal variance minimization, respects natural groupings
+ * 
+ * Complexity:
+ *   - Time: O(k×n×log(n)) using optimized algorithm
+ *   - Space: O(k×n) for dynamic programming table
+ * 
+ * Note: Values do not need to be sorted - function handles this internally
+ *       Useful when you want natural class boundaries rather than arbitrary ones
+ *       Original algorithm by Jenks (1967), optimized by Fisher (1958)
+ * 
+ * Reference: Jenks, G. F. (1967). The data model concept in statistical mapping.
+ *            International Yearbook of Cartography, 7, 186-190.
+ *            Port by Maarten Hilferink (C++ implementation).
+ * 
+ * See also: stb_kmeans() for cluster-based classification
  */
 STB_EXTERN double *stb_jenks(double *values, int len, int k);
 
-/* calculate the euclidean distance between two points */
+/* ============================================================================
+ * DISTANCE AND SIMILARITY METRICS
+ * ============================================================================ */
+
+/* Euclidean distance between two points
+ * 
+ * Purpose: Computes the straight-line (L2) distance between two vectors
+ * 
+ * Mathematical: d(a,b) = √(Σᵢ(aᵢ - bᵢ)²)
+ * 
+ * Inputs:
+ *   a    - first vector (length = size)
+ *   b    - second vector (length = size)
+ *   size - dimensionality of vectors
+ * 
+ * Returns: Euclidean distance as a double
+ * 
+ * Properties:
+ *   - Always non-negative: d(a,b) ≥ 0
+ *   - Symmetric: d(a,b) = d(b,a)
+ *   - Identity: d(a,a) = 0
+ *   - Triangle inequality: d(a,c) ≤ d(a,b) + d(b,c)
+ * 
+ * Applications:
+ *   - K-means clustering (distance to centroids)
+ *   - K-nearest neighbors (KNN) classification
+ *   - Outlier detection
+ *   - Similarity searches in high-dimensional spaces
+ *   - Gene expression pattern comparison
+ * 
+ * Note: For distance comparisons (e.g., finding nearest neighbor), use
+ *       stb_euclidean_distance_sqr() instead - avoids expensive sqrt()
+ * 
+ * Example:
+ *   double gene1[] = {2.1, 5.3, 1.8};
+ *   double gene2[] = {2.5, 4.9, 2.1};
+ *   double dist = stb_euclidean_distance(gene1, gene2, 3);
+ *   // dist ≈ 0.58
+ * 
+ * See also: stb_euclidean_distance_sqr() for faster distance comparisons
+ */
 STB_EXTERN double stb_euclidean_distance(const double *a, const double *b, const int size);
 
-/* Most of the time, this is sufficient and slightly faster calculate the sqr euclidean distance between two points */
+/* Squared Euclidean distance between two points
+ * 
+ * Purpose: Computes squared L2 distance without taking square root
+ *          Faster than stb_euclidean_distance() for comparisons
+ * 
+ * Mathematical: d²(a,b) = Σᵢ(aᵢ - bᵢ)²
+ * 
+ * Inputs:
+ *   a    - first vector (length = size)
+ *   b    - second vector (length = size)
+ *   size - dimensionality of vectors
+ * 
+ * Returns: Squared Euclidean distance as a double
+ * 
+ * Advantages:
+ *   - Faster computation (avoids sqrt)
+ *   - Preserves distance ordering: if d²(a,c) < d²(a,b), then d(a,c) < d(a,b)
+ *   - Sufficient for many applications that only need relative distances
+ * 
+ * Applications:
+ *   - K-nearest neighbors (finding closest points)
+ *   - K-means clustering (assignment step)
+ *   - t-SNE optimization
+ *   - UMAP embedding
+ *   - Any algorithm that compares distances but doesn't need actual values
+ * 
+ * Example:
+ *   // Find nearest neighbor
+ *   double query[] = {1.0, 2.0, 3.0};
+ *   double best_dist_sqr = INFINITY;
+ *   int best_idx = -1;
+ *   
+ *   for (int i = 0; i < n_points; i++) {
+ *       double dist_sqr = stb_euclidean_distance_sqr(query, points[i], 3);
+ *       if (dist_sqr < best_dist_sqr) {
+ *           best_dist_sqr = dist_sqr;
+ *           best_idx = i;
+ *       }
+ *   }
+ *   
+ *   // If actual distance needed: sqrt(best_dist_sqr)
+ * 
+ * Note: Most of the time, this is sufficient and slightly faster than
+ *       stb_euclidean_distance() for distance-based comparisons
+ */
 STB_EXTERN double stb_euclidean_distance_sqr(const double *a, const double *b, const int size);
 
-/* Cosine similarity */
+/* Cosine similarity between two vectors
+ * 
+ * Purpose: Measures similarity based on angle between vectors,
+ *          independent of magnitude
+ * 
+ * Mathematical: cos(θ) = (a·b) / (||a|| ||b||) = Σᵢ(aᵢbᵢ) / √(Σᵢaᵢ²)√(Σᵢbᵢ²)
+ * 
+ * Inputs:
+ *   a    - first vector (length = size)
+ *   b    - second vector (length = size)
+ *   size - dimensionality of vectors
+ * 
+ * Returns: Cosine similarity in range [-1, 1]
+ *   - 1.0:  vectors point in same direction (identical after normalization)
+ *   - 0.0:  vectors are orthogonal (perpendicular)
+ *   - -1.0: vectors point in opposite directions
+ * 
+ * Conversion to distance: cosine distance = 1 - cosine similarity (range [0, 2])
+ * 
+ * Advantages over Euclidean distance:
+ *   - Scale-invariant (magnitude doesn't matter)
+ *   - Focuses on pattern/shape rather than absolute values
+ *   - Effective in high-dimensional spaces
+ *   - Natural for normalized data or directional comparisons
+ * 
+ * Applications:
+ *   - Text similarity (TF-IDF vectors, document comparison)
+ *   - Gene expression correlation (co-expression analysis)
+ *   - Recommendation systems (user/item similarity)
+ *   - Image similarity (feature vectors)
+ *   - Finding genes with similar expression patterns
+ * 
+ * Bioinformatics use cases:
+ *   - Gene expression: compare expression profiles across conditions
+ *   - Co-expression networks: identify co-regulated genes
+ *   - Pathway analysis: compare gene sets
+ *   - Protein sequence comparison
+ * 
+ * Example:
+ *   // Compare gene expression patterns (3 samples)
+ *   double gene_A[] = {10.0, 20.0, 30.0};  // Increasing
+ *   double gene_B[] = {5.0, 10.0, 15.0};   // Increasing (scaled down)
+ *   double gene_C[] = {30.0, 20.0, 10.0};  // Decreasing
+ *   
+ *   double sim_AB = stb_cosine_similarity(gene_A, gene_B, 3);  // ≈ 1.0 (same pattern)
+ *   double sim_AC = stb_cosine_similarity(gene_A, gene_C, 3);  // ≈ -1.0 (opposite)
+ *   
+ *   // Gene A and B are co-expressed (positive correlation)
+ *   // Gene A and C are anti-correlated (negative correlation)
+ * 
+ * Note: Related to Pearson correlation - cosine similarity of mean-centered data
+ *       equals Pearson correlation coefficient
+ * 
+ * See also: Use stb_pearson() for explicit correlation with p-values
+ */
 STB_EXTERN double stb_cosine_similarity(const double *a, const double *b, const int size);
 
-/* K-Means++ data clustering
- * x[n][d] = the data points
- * n       = Number of points
- * d       = Dimension of the data (e.g. color, weight, etc.) 
- * k       = # clusters
-*  c[k][d] = Center points of clusters
-*  z[n]    = What cluster a point is in
-*  wss[k]  = The within-cluster sum of square of each cluster (optional)
-*
-* Note: This algorithm does not scale very well to a large number of points, consider using k-Means||
-*/
+/* ============================================================================
+ * STATISTICAL UTILITIES
+ * ============================================================================ */
+
+/* Compute median of a dataset
+ * 
+ * Purpose: Returns the middle value when data is sorted
+ *          Robust measure of central tendency
+ * 
+ * Statistical: Median is the 50th percentile
+ *   - For odd n: median = sorted[n/2]
+ *   - For even n: median = (sorted[n/2-1] + sorted[n/2]) / 2
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements in array
+ * 
+ * Returns: Median value as a double
+ * 
+ * Note: Modifies input array by sorting it in-place
+ *       If you need to preserve original order, make a copy first
+ * 
+ * Advantages over mean:
+ *   - Robust to outliers and extreme values
+ *   - Better for skewed distributions
+ *   - Not affected by a few very large or small values
+ *   - Represents "typical" value better for non-normal data
+ * 
+ * Applications:
+ *   - Summarizing skewed distributions (e.g., gene expression)
+ *   - Robust normalization (median normalization)
+ *   - Detecting outliers (values far from median)
+ *   - DESeq size factor estimation (median of ratios)
+ *   - Quality control metrics
+ * 
+ * Bioinformatics applications:
+ *   - RNA-seq: median gene expression across samples
+ *   - QC: median read depth, median quality scores
+ *   - Normalization: median of ratios method
+ *   - Copy number variation: median signal intensity
+ * 
+ * Example:
+ *   double expression[] = {5.2, 100.0, 5.5, 5.1, 5.3};  // One outlier
+ *   double med = stb_median(expression, 5);  // Returns ≈ 5.3 (robust)
+ *   
+ *   // Compare to mean
+ *   double mean = 0.0;
+ *   for (int i = 0; i < 5; i++) mean += expression[i];
+ *   mean /= 5.0;  // Returns ≈ 24.2 (affected by outlier)
+ *   
+ *   // Median better represents typical expression level
+ * 
+ * Complexity: O(n log n) due to sorting
+ * 
+ * Warning: Input array is sorted in-place. Original order is lost.
+ *          Make a copy first if order must be preserved.
+ */
+STB_EXTERN double stb_median(double *data, int n);
+
+/* ============================================================================
+ * CLUSTERING ALGORITHMS
+ * ============================================================================ */
+
+/* K-Means++ clustering
+ * 
+ * Purpose: Partitions data into k clusters by minimizing within-cluster variance
+ *          Uses k-means++ initialization for better convergence
+ * 
+ * Algorithm: K-means++ (Arthur & Vassilvitskii, 2007)
+ *   1. Initialize: Choose first centroid randomly
+ *   2. For each remaining centroid: choose point with probability proportional to D²
+ *      where D = distance to nearest existing centroid
+ *   3. Assignment: Assign each point to nearest centroid
+ *   4. Update: Recalculate centroids as mean of assigned points
+ *   5. Repeat steps 3-4 until convergence
+ * 
+ * Inputs:
+ *   x - data matrix (n × d), n points in d dimensions
+ *   n - number of data points
+ *   d - dimensionality of each point
+ *   k - number of clusters to create
+ * 
+ * Outputs:
+ *   cret    - cluster centers (k × d), must be freed by caller
+ *   zret    - cluster assignments (n × 1), z[i] = cluster of point i (optional, can be NULL)
+ *   wssret  - within-cluster sum of squares for each cluster (k × 1) (optional, requires zret)
+ * 
+ * Applications:
+ *   - Customer segmentation
+ *   - Image compression (color quantization)
+ *   - Gene expression clustering (identify co-expressed genes)
+ *   - Cell type identification in single-cell RNA-seq
+ *   - Dimensionality reduction preprocessing
+ *   - Pattern recognition
+ * 
+ * Bioinformatics applications:
+ *   - scRNA-seq: cluster cells by expression profiles
+ *   - Metagenomics: bin sequences by composition
+ *   - Protein structure: group similar conformations
+ *   - Pathway analysis: cluster genes by function
+ * 
+ * Advantages:
+ *   - Simple and intuitive
+ *   - Fast convergence (typically few iterations)
+ *   - k-means++ initialization improves on random initialization
+ *   - Scales reasonably to moderate datasets
+ * 
+ * Limitations:
+ *   - Must specify k in advance
+ *   - Assumes spherical clusters
+ *   - Sensitive to outliers
+ *   - Can converge to local optima
+ *   - Poor scalability to very large datasets (consider k-means||)
+ * 
+ * Example:
+ *   // Cluster gene expression profiles
+ *   double **expr_data = ...; // 1000 genes × 10 samples
+ *   double **centers;
+ *   int *assignments;
+ *   double *wss;
+ *   
+ *   stb_kmeans(expr_data, 1000, 10, 5, &centers, &assignments, &wss);
+ *   
+ *   // centers[0..4] are the 5 cluster centers
+ *   // assignments[i] tells which cluster gene i belongs to (0-4)
+ *   // wss[j] is the within-cluster variance for cluster j
+ *   
+ *   printf("Cluster qualities (lower WSS = tighter cluster):\n");
+ *   for (int i = 0; i < 5; i++) {
+ *       printf("Cluster %d: WSS = %.2f\n", i, wss[i]);
+ *   }
+ *   
+ *   free(centers);
+ *   free(assignments);
+ *   free(wss);
+ * 
+ * Choosing k:
+ *   - Elbow method: plot WSS vs k, look for "elbow"
+ *   - Silhouette score: measure cluster separation
+ *   - Gap statistic: compare to null reference distribution
+ *   - Domain knowledge: biologically meaningful number
+ * 
+ * Note: Does not scale well to very large datasets
+ *       For big data, consider k-means|| or mini-batch k-means
+ * 
+ * Reference: Arthur, D., & Vassilvitskii, S. (2007). k-means++: The advantages
+ *            of careful seeding. SODA '07.
+ */
 STB_EXTERN void stb_kmeans(double **x, int n, int d, int k, double ***cret, int **zret, double **wssret);
 
 /* Compute eigenvalues and eigenvectors of a symmetric matrix
- * a[n][n] = The matrix
- * n       = Order of a
- * w[n]    = Eigenvalues
- * z[n][n] = Eigenvectors
+ * 
+ * Purpose: Spectral decomposition of a symmetric matrix
+ *          Essential for PCA, covariance analysis, graph clustering
+ * 
+ * Mathematical: For symmetric matrix A, finds A = VΛV' where
+ *   - Λ is diagonal matrix of eigenvalues
+ *   - V is matrix of eigenvectors (columns are eigenvectors)
+ *   - V'V = I (orthonormal eigenvectors)
+ * 
+ * Inputs:
+ *   a - symmetric matrix (n × n)
+ *   n - dimension of matrix
+ * 
+ * Outputs:
+ *   wret - eigenvalues (n × 1), sorted descending, must be freed
+ *   zret - eigenvectors (n × n), columns are eigenvectors, must be freed
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Properties:
+ *   - For symmetric A, all eigenvalues are real
+ *   - Eigenvectors are orthogonal
+ *   - First eigenvector corresponds to largest eigenvalue
+ * 
+ * Applications:
+ *   - Principal Component Analysis (eigenvectors of covariance matrix)
+ *   - Spectral clustering
+ *   - Dimensionality reduction
+ *   - Matrix factorization
+ *   - Stability analysis
+ * 
+ * Example (part of PCA):
+ *   // Compute principal components
+ *   STB_MAT *cov = compute_covariance_matrix(data);
+ *   double **eigenvalues;
+ *   double ***eigenvectors;
+ *   
+ *   stb_eigenv(cov->data, cov->rows, &eigenvalues, &eigenvectors);
+ *   
+ *   // eigenvalues[0] is variance explained by PC1
+ *   // eigenvectors[0] is PC1 direction
+ * 
+ * Note: This is a helper function, typically used internally by stb_pca()
+ *       For PCA, use stb_pca() directly rather than calling this manually
  */
 STB_EXTERN int stb_eigenv (double **a, int n, double **wret, double ***zret);
 
-/* This function returns the median */
-STB_EXTERN double stb_median(double *data, int n);
+/* ============================================================================
+ * DIMENSIONALITY REDUCTION
+ * ============================================================================ */
 
-/* stb_pca Principal Component Analysis
- * x[n][p]    = Data matrix
- * nx[n][p]   = 1 if data exists this point, 0 otherwise (optional (no missing data), can be NULL)
- * n          = Number of objects
- * p          = Variables each object
- * weights[p] = Weight of each variable (optional, can be NULL)
- * eret[p]    = Eigenvalues of covariance matrix
- * vret[p]    = Eigenvectors of covariance matrix
- * rret[n][m] = Projected data
- * m          = # of dimensions to project
- * level      = Level of robustness:
- *      -1 => flimsy statistics, Chebyshev codeviation
- *       0 => regular statistics, covariance matrix
- *       1 => semi-robust statistics, Manahattan codeviation
- *       2 => robust statistics, comedian matrix
+/* Principal Component Analysis (PCA)
+ * 
+ * Purpose: Projects high-dimensional data onto lower-dimensional subspace
+ *          that maximizes variance, revealing main patterns in data
+ * 
+ * Statistical method: Eigen decomposition of covariance/codeviation matrix
+ * 
+ * Mathematical: Finds orthogonal directions (principal components) that
+ *               explain maximum variance in data
+ *   - PC1: direction of maximum variance
+ *   - PC2: direction of maximum remaining variance (orthogonal to PC1)
+ *   - PC3: direction of maximum remaining variance (orthogonal to PC1 & PC2)
+ *   - etc.
+ * 
+ * Inputs:
+ *   x          - data matrix (n × p), n samples with p features each
+ *   n          - number of samples
+ *   p          - number of features (dimensions)
+ *   nx         - missing data indicator (n × p), 1 if data exists, 0 if missing
+ *                (optional, can be NULL for complete data)
+ *   weights    - feature weights (p × 1), optional, can be NULL for equal weights
+ *   m          - number of principal components to return (m ≤ p)
+ *   level      - robustness level:
+ *                -1 = flimsy (Chebyshev codeviation)
+ *                 0 = regular (covariance matrix) - standard PCA
+ *                 1 = semi-robust (Manhattan codeviation)
+ *                 2 = robust (comedian matrix) - robust to outliers
+ * 
+ * Outputs:
+ *   eret - eigenvalues (p × 1), variance explained by each PC, must be freed
+ *   vret - eigenvectors (p × p), columns are PCs (loadings), must be freed
+ *   rret - projected data (n × m), samples in PC space, must be freed
+ * 
+ * Interpretation:
+ *   - eret[i]/sum(eret): proportion of variance explained by PC i+1
+ *   - vret[·][i]: loadings (feature contributions) for PC i+1
+ *   - rret[j][·]: coordinates of sample j in PC space
+ * 
+ * Applications:
+ *   - Dimensionality reduction for visualization (plot PC1 vs PC2)
+ *   - Feature extraction (use PCs as new features)
+ *   - Noise reduction (keep top PCs, discard noise)
+ *   - Exploratory data analysis (identify patterns, outliers)
+ *   - Preprocessing for machine learning
+ * 
+ * Bioinformatics applications:
+ *   - Gene expression: identify main expression patterns
+ *   - scRNA-seq: cell type clustering and visualization
+ *   - Population genetics: ancestry inference
+ *   - Metagenomics: sample similarity analysis
+ *   - Proteomics: identify protein expression patterns
+ * 
+ * Advantages:
+ *   - Unsupervised (no labels needed)
+ *   - Optimal linear dimensionality reduction (max variance)
+ *   - Interpretable (PCs show feature contributions)
+ *   - Fast computation
+ *   - Handles multicollinearity
+ * 
+ * Limitations:
+ *   - Linear method (may miss nonlinear structure)
+ *   - Sensitive to outliers (use level=2 for robustness)
+ *   - Assumes variance = importance
+ *   - PCs can be hard to interpret biologically
+ * 
+ * Example:
+ *   // Reduce 10,000 gene dimensions to 2 for visualization
+ *   double **gene_expr = ...; // 100 samples × 10000 genes
+ *   double **eigenvalues;
+ *   double ***eigenvectors;
+ *   double ***pc_coords;
+ *   
+ *   stb_pca(gene_expr, 100, 10000, NULL, NULL, 2, 0, 
+ *           &eigenvalues, &eigenvectors, &pc_coords);
+ *   
+ *   // Print variance explained
+ *   double total_var = 0;
+ *   for (int i = 0; i < 10000; i++) total_var += eigenvalues[i];
+ *   printf("PC1 explains %.1f%% variance\n", 100*eigenvalues[0]/total_var);
+ *   printf("PC2 explains %.1f%% variance\n", 100*eigenvalues[1]/total_var);
+ *   
+ *   // Plot samples in PC space
+ *   for (int i = 0; i < 100; i++) {
+ *       plot_point(pc_coords[i][0], pc_coords[i][1]);  // PC1 vs PC2
+ *   }
+ *   
+ *   // Identify top contributing genes to PC1
+ *   for (int i = 0; i < 10; i++) {
+ *       printf("Gene %d loading on PC1: %.4f\n", i, eigenvectors[i][0]);
+ *   }
+ *   
+ *   free(eigenvalues);
+ *   free(eigenvectors);
+ *   free(pc_coords);
+ * 
+ * Choosing number of PCs:
+ *   - Scree plot: plot eigenvalues, look for "elbow"
+ *   - Cumulative variance: keep PCs explaining 80-90% variance
+ *   - Kaiser criterion: keep PCs with eigenvalue > mean eigenvalue
+ *   - Cross-validation: based on downstream task performance
+ * 
+ * Robustness levels:
+ *   - level=0: Standard PCA (covariance matrix)
+ *   - level=2: Robust PCA (comedian matrix) for outlier-prone data
+ *   - level=1,-1: Intermediate robustness options
+ * 
+ * See also: stb_tsne() and stb_umap() for nonlinear dimensionality reduction
+ * 
+ * Reference: Jolliffe, I. T. (2002). Principal Component Analysis (2nd ed.).
  */
 STB_EXTERN void stb_pca(double **x, int n, int p, int **nx, double *weights, int m, int level, double **eret, double ***vret, double ***rret);
 
-/* Arrange the N elements of data in random order. */
-STB_EXTERN void stb_shuffle(void *data, size_t n, size_t size, uint64_t *seed);
-
-/* returns a with n non-repeating random integers in [0,high). This 
- * is useful when n is small, but the range of numbers is big. Otherwise
- * it might be best to use stb_shuffle
- */
-STB_EXTERN int *stb_unique_random(int n, int high, uint64_t *seed);
-
-/* stb_neugas, a data neural gas clustering algorithm
- * See: www.demogng.de/JavaPaper/node16.html
- *
- * x[n][p] = Data Matrix
- * n       = Number of objects
- * p       = Measurements per object
- * k       = Number of clusters
- * c[k][p] = Cluster centers
- * z[n]    = What cluster a point is in (optional)
- * wss[k]  = The within-cluster sum of square of each cluster (optional only possible in combination with z!)
- *
- * Note: Neural gas was developed with a focus on learning a representation of the data space, rather than partitioning a data set
+/* Neural Gas clustering
+ * 
+ * Purpose: Learns a topological representation of data distribution
+ *          Emphasizes learning structure rather than hard partitioning
+ * 
+ * Algorithm: Neural Gas (Martinetz & Schulten, 1991)
+ *   - Competitive learning with adaptive neighborhoods
+ *   - Updates multiple cluster centers per iteration
+ *   - Strength of update depends on rank distance to data point
+ *   - Gradually reduces neighborhood size (λ) and learning rate (ε)
+ * 
+ * Method:
+ *   1. Initialize k cluster centers randomly or systematically
+ *   2. For each data point:
+ *      - Compute distance to all centers
+ *      - Rank centers by distance (0 = nearest)
+ *      - Update all centers with strength proportional to exp(-rank/λ)
+ *   3. Decay λ (neighborhood) and ε (learning rate) over time
+ *   4. Repeat until convergence
+ * 
+ * Inputs:
+ *   x - data matrix (n × p), n objects with p measurements each
+ *   n - number of data points
+ *   p - dimensionality of each point
+ *   k - number of cluster centers to learn
+ * 
+ * Outputs:
+ *   cret   - learned cluster centers (k × p), must be freed by caller
+ *   zret   - cluster assignments (n × 1), optional, can be NULL
+ *   wssret - within-cluster sum of squares (k × 1), optional, requires zret
+ * 
+ * Differences from k-means:
+ *   - Topological learning: preserves neighborhood structure
+ *   - Soft assignments during training (multiple centers updated)
+ *   - Better at capturing manifold structure
+ *   - More robust to initialization
+ *   - Focuses on representation over partitioning
+ * 
+ * Applications:
+ *   - Vector quantization
+ *   - Topology-preserving dimensionality reduction
+ *   - Feature map learning (similar to SOM but unorganized)
+ *   - Data visualization
+ *   - Manifold learning
+ *   - Clustering with complex shapes
+ * 
+ * Advantages:
+ *   - Learns topological relationships
+ *   - More flexible than k-means (non-spherical clusters)
+ *   - Robust to initialization
+ *   - Captures data manifold structure
+ * 
+ * Disadvantages:
+ *   - Slower than k-means
+ *   - More parameters to tune (λ, ε, decay rates)
+ *   - Less interpretable than hard clustering
+ *   - Computationally expensive for large k
+ * 
+ * Example:
+ *   // Learn topology of gene expression space
+ *   double **expr = ...; // 500 genes × 20 samples
+ *   double **prototypes;
+ *   int *clusters;
+ *   
+ *   stb_neugas(expr, 500, 20, 10, &prototypes, &clusters, NULL);
+ *   
+ *   // prototypes[0..9] represent 10 characteristic expression patterns
+ *   // These preserve topological relationships in gene expression space
+ *   
+ *   free(prototypes);
+ *   free(clusters);
+ * 
+ * Use cases:
+ *   - When cluster shapes are non-spherical
+ *   - When topological structure matters
+ *   - Exploratory data analysis
+ *   - Initialization for other algorithms
+ * 
+ * Note: Developed for learning representations rather than hard partitioning
+ *       More computationally intensive than k-means
+ *       See: www.demogng.de/JavaPaper/node16.html
+ * 
+ * Reference: Martinetz, T., & Schulten, K. (1991). A "neural-gas" network
+ *            learns topologies. Artificial Neural Networks, 397-402.
  */
 STB_EXTERN void stb_neugas(double **x, int n, int p, int k, double ***cret, int **zret, double **wssret);
 
@@ -3359,8 +4050,98 @@ STB_EXTERN double stb_polygamma(int k, double x);
 // so iteration to solve 1/x = 1/trigamma is monotonically convergent
 STB_EXTERN double stb_trigamma_inverse(double x);
 
-/* Moment estimation of the parameters of a scaled F-distribution (the prior) 
- * The first degrees of freedom is given 
+/* Fit scaled F-distribution to variance estimates (empirical Bayes)
+ * 
+ * Purpose: Estimates hyperparameters for variance shrinkage in differential expression
+ *          Uses method of moments to fit inverse chi-square (scaled F) distribution
+ * 
+ * Statistical method: Empirical Bayes variance estimation (limma/DESeq2 approach)
+ * 
+ * Background: In genomics, gene-wise variance estimates are unreliable with few samples.
+ *             By assuming variances follow a scaled F-distribution (inverse chi-square),
+ *             we can "borrow information" across genes to improve estimates.
+ * 
+ * Model: σ²ᵢ ~ σ₀² × χ²_{d₀}/d₀ (scaled inverse chi-square)
+ *        Equivalently: (σ²ᵢ/σ₀²) × d₀ ~ χ²_{d₀}
+ * 
+ * Method:
+ *   - Fit scaled F-distribution to empirical variance distribution
+ *   - Use method of moments: match mean and variance of observed variances
+ *   - Provides prior variance (σ₀²) and prior degrees of freedom (d₀)
+ *   - These hyperparameters used for variance shrinkage
+ * 
+ * Inputs:
+ *   var  - array of gene-wise variance estimates (length = len)
+ *          From stb_meanvar_counts_to_common_scale()
+ *   len  - number of genes
+ *   df1  - degrees of freedom for each variance estimate (typically n_samples - 1)
+ * 
+ * Outputs:
+ *   pvar - prior variance (σ₀²), must be freed by caller
+ *   pdf2 - prior degrees of freedom (d₀), must be freed by caller
+ * 
+ * Usage in differential expression:
+ *   1. Normalize counts (stb_calc_geometric_scaling_factors, stb_meanvar_counts_to_common_scale)
+ *   2. Compute gene variances
+ *   3. Fit F-distribution to get hyperparameters (this function)
+ *   4. Use hyperparameters in moderated t-test (stb_moderated_ttest)
+ * 
+ * Applications:
+ *   - RNA-seq differential expression (DESeq2 approach)
+ *   - Microarray analysis (limma approach)
+ *   - Any scenario with many variance estimates and few samples
+ *   - Variance shrinkage for improved statistical power
+ * 
+ * Advantages:
+ *   - Borrows information across genes
+ *   - Stabilizes variance estimates
+ *   - Increases statistical power
+ *   - Reduces false positives from noisy variance estimates
+ * 
+ * Example (complete differential expression workflow):
+ *   // Step 1: Normalize
+ *   STB_MAT *counts = stb_matrix_from_file("counts.txt");
+ *   double *sf, *means, *vars;
+ *   stb_calc_geometric_scaling_factors(counts, &sf);
+ *   stb_meanvar_counts_to_common_scale(counts, sf, &means, &vars);
+ *   
+ *   // Step 2: Estimate hyperparameters
+ *   double pvar, pdf2;
+ *   int df = counts->columns - 1;  // n_samples - 1
+ *   stb_fit_f_dist(vars, counts->rows, df, &pvar, &pdf2);
+ *   
+ *   printf("Prior variance: %.4f\n", pvar);
+ *   printf("Prior df: %.4f\n", pdf2);
+ *   
+ *   // Step 3: Test each gene with moderated t-test
+ *   for (int g = 0; g < counts->rows; g++) {
+ *       double t, p;
+ *       stb_moderated_ttest(control_expr[g], n_control,
+ *                          treatment_expr[g], n_treatment,
+ *                          pvar, pdf2, &t, &p);
+ *       if (p < 0.05) {
+ *           printf("Gene %d: t=%.3f, p=%.2e (significant)\n", g, t, p);
+ *       }
+ *   }
+ *   
+ *   free(sf); free(means); free(vars);
+ * 
+ * Interpretation:
+ *   - pvar: typical variance across genes (prior belief)
+ *   - pdf2: strength of prior (higher = more shrinkage)
+ *   - High pdf2: variances are similar across genes → more shrinkage
+ *   - Low pdf2: variances are variable → less shrinkage
+ * 
+ * Note: Uses method of moments via trigamma functions
+ *       Hyperparameters represent the prior distribution of gene variances
+ *       Essential for empirical Bayes moderated t-tests
+ * 
+ * Reference: Smyth, G. K. (2004). Linear models and empirical bayes methods
+ *            for assessing differential expression in microarray experiments.
+ *            Statistical Applications in Genetics and Molecular Biology, 3(1).
+ * 
+ * See also: stb_moderated_ttest() which uses these hyperparameters
+ *           stb_meanvar_counts_to_common_scale() which provides variance estimates
  */
 STB_EXTERN void stb_fit_f_dist(double *var, int len, int df1, double *pvar, double *pdf2);
 
@@ -3602,49 +4383,293 @@ typedef struct {
     int count;
 } stb_kdtree;
 
-/* Create a KD-tree from data points
- * data[n][dim] = Data matrix
- * n            = Number of points
- * dim          = Dimensionality of points
+/* K-D Tree for efficient nearest neighbor search
+ * 
+ * Purpose: Space-partitioning data structure for efficient k-nearest neighbor queries
+ *          in multidimensional space
+ * 
+ * Structure: Binary tree where each node represents a hyperplane that partitions
+ *            space along one dimension (cycling through dimensions at each level)
+ * 
+ * Complexity:
+ *   - Build: O(n log² n) average case
+ *   - Query: O(log n) average case, O(n) worst case
+ *   - Space: O(n)
+ * 
+ * Applications:
+ *   - k-nearest neighbor search for t-SNE and UMAP
+ *   - Clustering algorithms
+ *   - Similarity search
+ *   - Outlier detection
+ *   - Classification (k-NN classifier)
+ * 
+ * Note: Performance degrades in very high dimensions (curse of dimensionality)
+ *       For d > 20-30, approximate methods may be faster
+ */
+
+/* Build a KD-tree from data points
+ * 
+ * Purpose: Constructs a K-D tree for efficient nearest neighbor queries
+ * 
+ * Inputs:
+ *   data - data matrix (n × dim), points to index
+ *   n    - number of data points
+ *   dim  - dimensionality of each point
+ * 
+ * Returns: Pointer to stb_kdtree structure
+ *          Caller must free using stb_kdtree_destroy()
+ * 
+ * Example:
+ *   double **data = ...; // 1000 points in 50 dimensions
+ *   stb_kdtree *tree = stb_kdtree_create(data, 1000, 50);
+ *   // ... perform queries ...
+ *   stb_kdtree_destroy(tree);
+ * 
+ * Note: Tree holds pointers to original data - do not free data until tree is destroyed
  */
 STB_EXTERN stb_kdtree *stb_kdtree_create(double **data, int n, int dim);
 
-/* Find k nearest neighbors
- * tree      = KD-tree structure
- * point     = Query point
- * k         = Number of neighbors to find
- * indices   = Output array of neighbor indices
- * distances = Output array of distances
+/* Find k nearest neighbors using KD-tree
+ * 
+ * Purpose: Efficiently finds k closest points to a query point
+ * 
+ * Inputs:
+ *   tree  - KD-tree structure (from stb_kdtree_create)
+ *   point - query point (length = dim)
+ *   k     - number of neighbors to find
+ * 
+ * Outputs:
+ *   indices   - array of k neighbor indices (must be pre-allocated, length = k)
+ *   distances - array of k squared distances (must be pre-allocated, length = k)
+ * 
+ * Note: Returns squared Euclidean distances (not actual distances)
+ *       Results are sorted by distance (closest first)
+ *       If fewer than k points exist, remaining entries will be -1
+ * 
+ * Example:
+ *   stb_kdtree *tree = stb_kdtree_create(data, n, dim);
+ *   double query[50] = {...};
+ *   int neighbors[10];
+ *   double distances[10];
+ *   
+ *   stb_kdtree_knn(tree, query, 10, neighbors, distances);
+ *   
+ *   printf("Nearest neighbor: index %d, distance %.4f\n",
+ *          neighbors[0], sqrt(distances[0]));
+ *   
+ *   stb_kdtree_destroy(tree);
  */
 STB_EXTERN void stb_kdtree_knn(stb_kdtree *tree, double *point, int k, int *indices, double *distances);
 
-/* Free KD-tree memory */
+/* Destroy KD-tree and free memory
+ * 
+ * Purpose: Deallocates all memory associated with a KD-tree
+ * 
+ * Inputs:
+ *   tree - pointer to KD-tree structure
+ * 
+ * Note: Safe to call on NULL pointer
+ *       Does NOT free the original data array passed to stb_kdtree_create()
+ */
 STB_EXTERN void stb_kdtree_destroy(stb_kdtree *tree);
 
-/* t-SNE: t-Distributed Stochastic Neighbor Embedding
- * x[n][p]      = Data matrix
- * n            = Number of samples
- * p            = Number of features
- * n_components = Number of dimensions in output (typically 2 or 3)
- * perplexity   = Perplexity parameter (typical: 5-50, default: 30)
- * max_iter     = Maximum iterations (default: 1000)
- * learning_rate= Learning rate (default: 200.0)
- * result[n][n_components] = Output embedded coordinates
- *
- * Note: Uses Barnes-Hut approximation for O(n log n) complexity
+/* t-Distributed Stochastic Neighbor Embedding (t-SNE)
+ * 
+ * Purpose: Nonlinear dimensionality reduction for visualization
+ *          Preserves local neighborhood structure better than PCA
+ * 
+ * Algorithm: t-SNE (van der Maaten & Hinton, 2008)
+ *   1. Compute pairwise similarities in high-dimensional space using Gaussian
+ *   2. Define similar affinities in low-dimensional space using Student's t-distribution
+ *   3. Minimize KL divergence between high-D and low-D distributions via gradient descent
+ *   4. Uses Barnes-Hut approximation for O(n log n) complexity
+ * 
+ * Mathematical: Minimizes KL(P||Q) where
+ *   - P[i,j]: similarity between points i,j in original space
+ *   - Q[i,j]: similarity between points i,j in embedded space
+ * 
+ * Inputs:
+ *   x             - data matrix (n × p), high-dimensional data
+ *   n             - number of samples
+ *   p             - number of features (original dimensionality)
+ *   n_components  - output dimensions (typically 2 or 3 for visualization)
+ *   perplexity    - balances local vs global structure (typical: 5-50, default: 30)
+ *                   Rough measure of number of neighbors to preserve
+ *   max_iter      - maximum gradient descent iterations (default: 1000)
+ *   learning_rate - step size for gradient descent (default: 200.0)
+ * 
+ * Outputs:
+ *   result - embedded coordinates (n × n_components), must be freed by caller
+ * 
+ * Parameter tuning:
+ *   - perplexity: higher = more global structure, lower = more local clusters
+ *     - Use 5-50 for most datasets
+ *     - Rule of thumb: perplexity should be < n_samples / 3
+ *   - max_iter: 1000-5000 typically sufficient
+ *   - learning_rate: 10-1000, depends on dataset size
+ * 
+ * Applications:
+ *   - Visualizing high-dimensional data (especially clusters)
+ *   - Exploratory data analysis
+ *   - Single-cell RNA-seq visualization
+ *   - Image embedding visualization
+ *   - Discovering hidden patterns and outliers
+ * 
+ * Bioinformatics applications:
+ *   - scRNA-seq: visualize cell types and states
+ *   - Genomics: visualize population structure
+ *   - Proteomics: visualize protein similarities
+ *   - Drug discovery: visualize chemical space
+ * 
+ * Advantages:
+ *   - Excellent for visualizing clusters
+ *   - Preserves local neighborhood structure
+ *   - Reveals complex nonlinear relationships
+ *   - Effective for many data types
+ * 
+ * Limitations:
+ *   - Computationally expensive (even with Barnes-Hut)
+ *   - Stochastic (different runs give different results)
+ *   - Global structure not always preserved
+ *   - Distances in embedded space not meaningful
+ *   - Sensitive to hyperparameters
+ *   - Not suitable for new data projection (no explicit mapping)
+ * 
+ * Example:
+ *   // Visualize gene expression in 2D
+ *   double **expr = ...; // 5000 cells × 2000 genes
+ *   double ***embedding;
+ *   
+ *   stb_tsne(expr, 5000, 2000, 2, 30.0, 1000, 200.0, &embedding);
+ *   
+ *   // Plot cells in 2D
+ *   for (int i = 0; i < 5000; i++) {
+ *       plot_point(embedding[i][0], embedding[i][1], cell_type[i]);
+ *   }
+ *   
+ *   free(embedding);
+ * 
+ * Interpretation:
+ *   - Nearby points in t-SNE plot are similar in original space
+ *   - Cluster sizes not meaningful (t-SNE expands dense clusters)
+ *   - Distances not interpretable quantitatively
+ *   - Multiple runs may give different but equally valid layouts
+ * 
+ * Note: Uses Barnes-Hut approximation for O(n log n) complexity instead of O(n²)
+ *       For very large datasets (n > 10,000), consider using UMAP instead
+ * 
+ * Reference: van der Maaten, L., & Hinton, G. (2008). Visualizing data using t-SNE.
+ *            Journal of Machine Learning Research, 9, 2579-2605.
+ * 
+ * See also: stb_umap() for faster alternative with better global structure preservation
  */
 STB_EXTERN void stb_tsne(double **x, int n, int p, int n_components, double perplexity, 
                          int max_iter, double learning_rate, double ***result);
 
-/* UMAP: Uniform Manifold Approximation and Projection
- * x[n][p]      = Data matrix
- * n            = Number of samples
- * p            = Number of features
- * n_components = Number of dimensions in output (typically 2 or 3)
- * n_neighbors  = Number of neighbors (typical: 5-50, default: 15)
- * min_dist     = Minimum distance (default: 0.1)
- * n_epochs     = Number of training epochs (default: 200)
- * result[n][n_components] = Output embedded coordinates
+/* Uniform Manifold Approximation and Projection (UMAP)
+ * 
+ * Purpose: Fast nonlinear dimensionality reduction for visualization and general use
+ *          Preserves both local and global structure better than t-SNE
+ * 
+ * Algorithm: UMAP (McInnes, Healy & Melville, 2018)
+ *   1. Construct fuzzy topological representation of high-dimensional data
+ *   2. Find low-dimensional representation with similar topology
+ *   3. Optimize layout using stochastic gradient descent
+ *   4. Uses k-nearest neighbor graph for efficiency
+ * 
+ * Mathematical: Based on Riemannian geometry and algebraic topology
+ *               Constructs fuzzy simplicial set and optimizes cross-entropy
+ * 
+ * Inputs:
+ *   x            - data matrix (n × p), high-dimensional data
+ *   n            - number of samples
+ *   p            - number of features (original dimensionality)
+ *   n_components - output dimensions (typically 2 or 3 for visualization)
+ *   n_neighbors  - number of neighbors to consider (typical: 5-50, default: 15)
+ *                  Balances local vs global structure
+ *   min_dist     - minimum distance between points in embedding (default: 0.1)
+ *                  Smaller = more clustered, larger = more spread out
+ *   n_epochs     - number of training epochs (default: 200)
+ * 
+ * Outputs:
+ *   result - embedded coordinates (n × n_components), must be freed by caller
+ * 
+ * Parameter tuning:
+ *   - n_neighbors: higher = more global, lower = more local
+ *     - Use 5-15 for local structure, 30-100 for global
+ *   - min_dist: 0.0-0.99
+ *     - 0.0 = tightly packed clusters
+ *     - 0.1 = moderate (default, good balance)
+ *     - 0.5+ = more spread out
+ *   - n_epochs: 200-500 typically sufficient
+ * 
+ * Applications:
+ *   - Visualizing high-dimensional data
+ *   - General-purpose dimensionality reduction (not just visualization)
+ *   - Preprocessing for machine learning
+ *   - Single-cell RNA-seq analysis
+ *   - Any application requiring fast nonlinear embedding
+ * 
+ * Bioinformatics applications:
+ *   - scRNA-seq: cell type visualization and clustering
+ *   - Genomics: population structure visualization
+ *   - Spatial transcriptomics: tissue organization
+ *   - Multi-omics integration
+ * 
+ * Advantages over t-SNE:
+ *   - Much faster (especially for large datasets)
+ *   - Better preserves global structure
+ *   - More stable across runs (less stochastic)
+ *   - Can embed new points (with additional code)
+ *   - Scales better to large datasets
+ *   - Distances more meaningful
+ *   - Works well in higher dimensions (not just 2D)
+ * 
+ * Advantages over PCA:
+ *   - Captures nonlinear relationships
+ *   - Better separation of clusters
+ *   - More flexible structure preservation
+ * 
+ * Limitations:
+ *   - More complex algorithm (harder to interpret)
+ *   - Hyperparameters affect results
+ *   - Stochastic (some variation between runs)
+ *   - Less mature than t-SNE (but rapidly improving)
+ * 
+ * Example:
+ *   // Visualize single-cell RNA-seq data
+ *   double **expression = ...; // 10000 cells × 2000 genes
+ *   double ***embedding;
+ *   
+ *   // Use UMAP for fast, high-quality embedding
+ *   stb_umap(expression, 10000, 2000, 2, 15, 0.1, 200, &embedding);
+ *   
+ *   // Plot cells colored by type
+ *   for (int i = 0; i < 10000; i++) {
+ *       plot_point(embedding[i][0], embedding[i][1], cell_type[i]);
+ *   }
+ *   
+ *   free(embedding);
+ * 
+ * Comparison with t-SNE:
+ *   - UMAP is typically 5-10x faster
+ *   - UMAP better preserves global structure
+ *   - UMAP more deterministic (less run-to-run variation)
+ *   - t-SNE may give tighter clusters
+ *   - Both excellent for visualization
+ * 
+ * Interpretation:
+ *   - Nearby points are similar in original space
+ *   - Distances more meaningful than t-SNE (but still not exact)
+ *   - Cluster sizes more interpretable
+ *   - Global structure generally preserved
+ * 
+ * Reference: McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform
+ *            Manifold Approximation and Projection for Dimension Reduction.
+ *            arXiv:1802.03426.
+ * 
+ * See also: stb_tsne() for alternative visualization method
+ *           stb_pca() for linear dimensionality reduction
  */
 STB_EXTERN void stb_umap(double **x, int n, int p, int n_components, int n_neighbors,
                          double min_dist, int n_epochs, double ***result);
