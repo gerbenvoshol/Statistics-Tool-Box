@@ -3159,7 +3159,7 @@ STB_EXTERN void stb_qnorm_with_reference(double **data, double **reference, int 
  * 
  * Reference: Linear Models by Searle, S. R. (1971)
  */
-STB_EXTERN void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
+STB_EXTERN void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue);
 
 /* Multiple logistic regression with hypothesis testing
  * 
