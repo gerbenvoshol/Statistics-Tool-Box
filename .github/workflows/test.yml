@@ -1,0 +1,80 @@
+name: CI/CD Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev
+        
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install zlib || true
+        
+    - name: Build all targets
+      run: make all
+      
+    - name: Run comprehensive test suite
+      run: make test
+      
+    - name: Test deseq2_example builds
+      run: ./deseq2_example --help || true
+      
+    - name: Test dim_reduce builds
+      run: ./dim_reduce --help || echo "dim_reduce requires input file"
+      
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev gcov
+        
+    - name: Build with coverage flags
+      run: |
+        gcc -O0 -g --coverage -Wall -Wextra -std=c99 -D_GNU_SOURCE \
+          -o test_stb_stats test_stb_stats.c -lm -lz
+        
+    - name: Run tests with coverage
+      run: ./test_stb_stats
+      
+    - name: Generate coverage report
+      run: |
+        gcov test_stb_stats.c
+        echo "Coverage report generated"
+        
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: |
+          *.gcov
+          *.gcda
+          *.gcno
