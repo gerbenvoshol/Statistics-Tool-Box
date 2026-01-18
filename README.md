@@ -21,6 +21,7 @@ Functions included are:
 * **stb_tsne** (t-SNE: t-Distributed Stochastic Neighbor Embedding with Barnes-Hut approximation)
 * **stb_umap** (UMAP: Uniform Manifold Approximation and Projection)
 * **stb_kdtree** KD-tree data structure for efficient nearest neighbor search (used by t-SNE and UMAP)
+* stb_adjust_pvalues_bh (apply Benjamini-Hochberg FDR correction to array of p-values), stb_log2_fold_change
 * stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)
 * stb_shannon (Shannon's diversity index, Pilou evenness, stb_simpson (Simpson's Diversity Index), stb_jaccard (Jaccard similarity index), stb_bray_curtis (Bray–Curtis dissimilarity) and stb_create_htable a simple basic hash table
 * stb_pdf_hypgeo hypergeometric distribution probability density function, speedup stb_log_factorial using lookup table
@@ -61,6 +62,44 @@ Functions included are:
 
 ## Example Programs
 
+### deseq2_example - DESeq2-style Differential Expression Analysis
+
+A sample C program demonstrating DESeq2-style differential expression analysis using stb_stats.h for normalization and statistical testing.
+
+**Features:**
+- RSE (Relative Log Expression) normalization using geometric means
+- Dispersion estimation using `stb_fit_f_dist`
+- Moderated t-test for differential expression
+- Multiple testing correction using Benjamini-Hochberg FDR
+- Log2 fold change calculation
+
+**Input format:**
+- TAB-delimited count matrix (rows x columns format)
+- First row: number of rows and columns
+- Subsequent rows: count data (genes as rows, samples as columns)
+
+**Quick start:**
+```bash
+make
+./deseq2_example sample_counts.txt --g1-start 0 --g1-count 3 --g2-start 3 --g2-count 3 -o results.txt
+```
+
+**Options:**
+- `--g1-start N`: Starting column index for group 1 (default: 1)
+- `--g1-count N`: Number of samples in group 1 (default: 3)
+- `--g2-start N`: Starting column index for group 2 (default: 4)
+- `--g2-count N`: Number of samples in group 2 (default: 3)
+- `--fdr FLOAT`: False discovery rate threshold (default: 0.05)
+- `-o FILE`: Output file (default: stdout)
+
+**Output columns:**
+- Gene: Gene identifier
+- baseMean: Average expression across all samples
+- log2FoldChange: Log2 fold change between groups
+- stat: Test statistic (moderated t-statistic)
+- pvalue: P-value from statistical test
+- padj: Adjusted p-value (Benjamini-Hochberg FDR)
+
 ### dim_reduce - Generic Dimension Reduction Tool
 
 A flexible C program demonstrating the usage of PCA, t-SNE, and UMAP for dimensionality reduction on tabular data.
@@ -86,5 +125,5 @@ CITATION
 
 If you use this Tool-Box in a publication, please reference:
 
-Voshol, G.P. (2024). STB: A simple Statistics Tool Box (Version 1.25) [Software]. 
+Voshol, G.P. (2024). STB: A simple Statistics Tool Box (Version 1.26) [Software]. 
 Available from https://github.com/gerbenvoshol/Statistics-Tool-Box

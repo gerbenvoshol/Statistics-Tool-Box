@@ -1,4 +1,4 @@
-/* stb_stats.h - v1.25 - Statistics Tool Box -- public domain
+/* stb_stats.h - v1.26 - Statistics Tool Box -- public domain
 					no warranty is offered or implied; use this code at your own risk
 
 	 This is a single header file with a bunch of useful statistical functions
@@ -18,6 +18,7 @@
  ============================================================================
 
  Version History
+        1.26  stb_adjust_pvalues_bh (apply BH FDR correction to array), stb_log2_fold_change, deseq2_example.c sample program
         1.25  stb_tsne (t-SNE with Barnes-Hut approximation), stb_umap (UMAP), stb_kdtree (KD-tree for nearest neighbor search)
         1.24  Corrected stb_bonferroni and stb_sidak
 	1.23  stb_moderated_ttest, stb_cosine_similarity, RSE Normalization (stb_calc_geometric_scaling_factors and stb_meanvar_counts_to_common_scale)

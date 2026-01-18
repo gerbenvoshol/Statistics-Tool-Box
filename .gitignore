@@ -1,5 +1,6 @@
 # Build artifacts
 dim_reduce
+deseq2_example
 *.o
 
 # Test files
