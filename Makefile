@@ -7,12 +7,14 @@ LDFLAGS = -lm -lz
 TARGET = dim_reduce
 TARGET2 = deseq2_example
 TARGET3 = test_stb_stats
+TARGET4 = test_isolated
 SOURCE = dim_reduce.c
 SOURCE2 = deseq2_example.c
 SOURCE3 = test_stb_stats.c
+SOURCE4 = test_isolated.c
 HEADER = stb_stats.h
 
-all: $(TARGET) $(TARGET2) $(TARGET3)
+all: $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4)
 
 $(TARGET): $(SOURCE) $(HEADER)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCE) $(LDFLAGS)
@@ -23,12 +25,19 @@ $(TARGET2): $(SOURCE2) $(HEADER)
 $(TARGET3): $(SOURCE3) $(HEADER)
 	$(CC) $(CFLAGS) -o $(TARGET3) $(SOURCE3) $(LDFLAGS)
 
+$(TARGET4): $(SOURCE4) $(HEADER)
+	$(CC) $(CFLAGS) -o $(TARGET4) $(SOURCE4) $(LDFLAGS)
+
 clean:
-	rm -f $(TARGET) $(TARGET2) $(TARGET3) *.o
+	rm -f $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4) *.o
 
 test: $(TARGET3)
 	@echo "Running comprehensive stb_stats test suite..."
 	./$(TARGET3)
+
+test-isolated: $(TARGET4)
+	@echo "Running isolated tests for problematic functions..."
+	./$(TARGET4)
 
 test-dim: $(TARGET)
 	@echo "Testing PCA..."
@@ -38,4 +47,4 @@ test-dim: $(TARGET)
 	@echo "Testing UMAP..."
 	./$(TARGET) test_data.txt -a umap -o test_umap.txt
 
-.PHONY: all clean test test-dim
+.PHONY: all clean test test-isolated test-dim
