@@ -2161,206 +2161,1075 @@ STB_EXTERN char **stb_parse_csv(const char *line, const char delim, int *nrfield
 STB_EXTERN int stb_count_fields(const char *line, const char delim);
 STB_EXTERN void stb_free_csv_line(char **parsed);
 
-/* Simple Matrix Function */
+/* ============================================================================
+ * MATRIX OPERATIONS
+ * ============================================================================
+ * 
+ * Purpose: Comprehensive matrix manipulation functions for statistical computations
+ * 
+ * The STB_MAT structure provides a convenient wrapper around 2D double arrays with
+ * automatic memory management and dimension tracking. All matrix operations follow
+ * standard linear algebra conventions.
+ * 
+ * Applications:
+ *   - Linear and logistic regression (design matrices)
+ *   - Principal Component Analysis (covariance matrices)
+ *   - Data preprocessing and normalization
+ *   - Dimensionality reduction
+ *   - Bioinformatics: gene expression matrices, count tables
+ * 
+ * Memory management: Use stb_new_matrix() to allocate and stb_free_matrix() to
+ * deallocate. Output matrices (**D parameters) are allocated by the functions
+ * and must be freed by the caller.
+ */
 
-/* Matrix structure */
+/* Matrix structure
+ * 
+ * Structure: Encapsulates a 2D array with dimensions
+ * 
+ * Fields:
+ *   data    - 2D array of doubles (data[row][column])
+ *   rows    - number of rows in the matrix
+ *   columns - number of columns in the matrix
+ * 
+ * Note: Internally uses contiguous memory allocation for better cache performance
+ */
 typedef struct {
 	double **data;
 	int rows;
 	int columns;
 } STB_MAT;
 
-/* Print a matrix */
-STB_EXTERN void stb_matrix_print(STB_MAT *matrix);
-
-/* Free a matrix */
-STB_EXTERN void stb_free_matrix(STB_MAT *matrix);
-
-/* Return a new matrix of rowx column size initialized with 0 */
+/* Allocate a new zero-initialized matrix
+ * 
+ * Purpose: Creates a new matrix with all elements initialized to 0.0
+ * 
+ * Inputs:
+ *   rows    - number of rows (must be > 0)
+ *   columns - number of columns (must be > 0)
+ * 
+ * Returns: Pointer to newly allocated STB_MAT structure
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Example:
+ *   STB_MAT *A = stb_new_matrix(100, 50);  // 100 samples × 50 features
+ *   // ... use matrix ...
+ *   stb_free_matrix(A);
+ */
 STB_EXTERN STB_MAT *stb_new_matrix(int rows, int columns);
 
-/* Retrn an identity matrix of rowxcolumn size */
+/* Free matrix memory
+ * 
+ * Purpose: Deallocates all memory associated with a matrix
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to free
+ * 
+ * Note: Safe to call on NULL pointer (no operation performed)
+ *       Sets internal pointers to NULL after freeing
+ */
+STB_EXTERN void stb_free_matrix(STB_MAT *matrix);
+
+/* Print matrix to standard output
+ * 
+ * Purpose: Displays matrix contents in human-readable format
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to print
+ * 
+ * Format: Scientific notation with 6 decimal places per element
+ *         Each row on a separate line, elements tab-separated
+ * 
+ * Usage: Primarily for debugging and small matrix inspection
+ */
+STB_EXTERN void stb_matrix_print(STB_MAT *matrix);
+
+/* Create an identity matrix
+ * 
+ * Purpose: Generates an identity matrix I where I[i][i] = 1 and I[i][j] = 0 for i ≠ j
+ * 
+ * Mathematical: For square matrix (rows = columns), this is the multiplicative identity
+ *               For rectangular matrices, 1s appear on the main diagonal
+ * 
+ * Inputs:
+ *   rows    - number of rows
+ *   columns - number of columns
+ * 
+ * Returns: Pointer to newly allocated identity matrix
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Initialization of transformation matrices
+ *   - Regularization in regression (I added to X'X for ridge regression)
+ *   - Testing matrix inversion and multiplication
+ * 
+ * Example:
+ *   STB_MAT *I = stb_identity_matrix(3, 3);  // 3×3 identity
+ *   // I->data = [[1,0,0], [0,1,0], [0,0,1]]
+ */
 STB_EXTERN STB_MAT *stb_identity_matrix(int rows, int columns);
 
-/* Return a copy of a matrix */
+/* Duplicate a matrix
+ * 
+ * Purpose: Creates a deep copy of an existing matrix
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to duplicate
+ * 
+ * Returns: Pointer to newly allocated copy with identical dimensions and values
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Note: Performs deep copy - modifications to the copy do not affect the original
+ * 
+ * Usage: When you need to preserve original data during transformations
+ *        or perform multiple operations on the same starting data
+ */
 STB_EXTERN STB_MAT *stb_dup_matrix(STB_MAT *matrix);
 
-/* Fill a matrix with a value */
+/* Fill matrix with a constant value
+ * 
+ * Purpose: Sets all elements of a matrix to the same value (in-place operation)
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to fill
+ *   value  - scalar value to assign to all elements
+ * 
+ * Note: Modifies the input matrix directly
+ * 
+ * Applications:
+ *   - Initialize design matrices with 1s (intercept column)
+ *   - Reset matrices between iterations
+ *   - Create constant matrices for testing
+ */
 STB_EXTERN void stb_fill_matrix(STB_MAT *matrix, double value);
 
-/* Join two matrixes together and store the result in D. Example:
- * A |   B   =    D 
- *
- * 1 | 1 0 0   1 1 0 0
- * 1 | 0 1 0 = 1 0 1 0
- * 1 | 0 0 1   1 0 0 1
+/* Horizontal matrix concatenation
+ * 
+ * Purpose: Joins two matrices side-by-side (column-wise concatenation)
+ * 
+ * Mathematical: D = [A | B] where D has A's columns followed by B's columns
+ * 
+ * Inputs:
+ *   A - first matrix (m × n₁)
+ *   B - second matrix (m × n₂)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × (n₁ + n₂))
+ * 
+ * Requirements: A and B must have the same number of rows
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Creating design matrices (add intercept column to predictors)
+ *   - Combining feature sets
+ *   - Building augmented matrices for linear systems
+ * 
+ * Example:
+ *   STB_MAT *ones = stb_new_matrix(100, 1);  // Intercept column
+ *   stb_fill_matrix(ones, 1.0);
+ *   STB_MAT *predictors = ...; // 100 × 5 feature matrix
+ *   STB_MAT *design;
+ *   stb_join_matrix(ones, predictors, &design);  // 100 × 6 design matrix
  */
 STB_EXTERN void stb_join_matrix(STB_MAT *A, STB_MAT *B, STB_MAT **D);
 
-/* Multiply two matrixes A and B, store the result in D */
+/* Matrix multiplication
+ * 
+ * Purpose: Computes the matrix product of two matrices
+ * 
+ * Mathematical: D = A × B where D[i][j] = Σₖ A[i][k] × B[k][j]
+ * 
+ * Inputs:
+ *   A - first matrix (m × n)
+ *   B - second matrix (n × p)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × p)
+ * 
+ * Requirements: Number of columns in A must equal number of rows in B
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Complexity: O(mnp) time, O(mp) space
+ * 
+ * Applications:
+ *   - Linear regression: (X'X)⁻¹X'y for coefficient estimation
+ *   - Transformation of data: Y = XW
+ *   - Covariance matrix computation: Σ = (1/n)X'X
+ *   - Neural network forward propagation
+ * 
+ * Example:
+ *   // Compute X'X for normal equations
+ *   STB_MAT *Xt, *XtX;
+ *   stb_transpose_matrix(X, &Xt);
+ *   stb_matrix_multiply(Xt, X, &XtX);
+ */
 STB_EXTERN void stb_matrix_multiply(STB_MAT *A, STB_MAT *B, STB_MAT **D);
 
-/* Substract two equal sized matrixes A and B, store the result in D */
-STB_EXTERN void stb_matrix_subs(STB_MAT *A, STB_MAT *B, STB_MAT **D);
-
-/* Add two equal sized matrixes together A and B, store the result in D */
+/* Matrix addition
+ * 
+ * Purpose: Element-wise addition of two matrices
+ * 
+ * Mathematical: D = A + B where D[i][j] = A[i][j] + B[i][j]
+ * 
+ * Inputs:
+ *   A - first matrix (m × n)
+ *   B - second matrix (m × n)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × n)
+ * 
+ * Requirements: A and B must have identical dimensions
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Combining data from multiple sources
+ *   - Gradient accumulation in optimization
+ *   - Batch normalization
+ */
 STB_EXTERN void stb_matrix_add(STB_MAT *A, STB_MAT *B, STB_MAT **D);
 
-/* Transopse matrix A  and store it in Atransposed */
+/* Matrix subtraction
+ * 
+ * Purpose: Element-wise subtraction of two matrices
+ * 
+ * Mathematical: D = A - B where D[i][j] = A[i][j] - B[i][j]
+ * 
+ * Inputs:
+ *   A - first matrix (m × n)
+ *   B - second matrix (m × n)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × n)
+ * 
+ * Requirements: A and B must have identical dimensions
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Computing residuals: R = Y - Ŷ
+ *   - Difference matrices in paired analysis
+ *   - Gradient descent updates
+ */
+STB_EXTERN void stb_matrix_subs(STB_MAT *A, STB_MAT *B, STB_MAT **D);
+
+/* Matrix transpose
+ * 
+ * Purpose: Reflects a matrix over its main diagonal
+ * 
+ * Mathematical: Aᵀ where Aᵀ[i][j] = A[j][i]
+ * 
+ * Inputs:
+ *   A - input matrix (m × n)
+ * 
+ * Outputs:
+ *   Atransposed - pointer to receive transposed matrix (n × m)
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Properties: (Aᵀ)ᵀ = A, (AB)ᵀ = BᵀAᵀ
+ * 
+ * Applications:
+ *   - Normal equations: β = (X'X)⁻¹X'y
+ *   - Covariance matrix: Σ = X'X / (n-1)
+ *   - Converting between row and column vectors
+ *   - Gram matrix computation
+ * 
+ * Example:
+ *   // Transpose data matrix for column-wise operations
+ *   STB_MAT *data_t;
+ *   stb_transpose_matrix(data, &data_t);  // genes × samples → samples × genes
+ */
 STB_EXTERN void stb_transpose_matrix(STB_MAT *A, STB_MAT **Atransposed);
 
-/* Invert matrix A and store it in Ainverted*/
+/* Matrix inversion
+ * 
+ * Purpose: Computes the multiplicative inverse of a square matrix
+ * 
+ * Mathematical: A⁻¹ where A × A⁻¹ = A⁻¹ × A = I
+ * 
+ * Method: LU decomposition with partial pivoting
+ * 
+ * Inputs:
+ *   A - input matrix (n × n, must be non-singular)
+ * 
+ * Outputs:
+ *   Ainverted - pointer to receive inverted matrix (n × n)
+ * 
+ * Requirements: A must be square and non-singular (det(A) ≠ 0)
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Complexity: O(n³) time, O(n²) space
+ * 
+ * Applications:
+ *   - Solving linear systems: x = A⁻¹b
+ *   - Linear regression: β = (X'X)⁻¹X'y
+ *   - Computing covariance matrix inverses
+ *   - Statistical hypothesis testing (variance-covariance matrices)
+ * 
+ * Note: For large matrices, consider using specialized linear algebra libraries
+ *       For nearly singular matrices, use regularization (ridge regression)
+ *       Numerical stability issues may arise for ill-conditioned matrices
+ * 
+ * Example:
+ *   // Solve linear regression coefficients
+ *   STB_MAT *Xt, *XtX, *XtX_inv, *Xty, *beta;
+ *   stb_transpose_matrix(X, &Xt);
+ *   stb_matrix_multiply(Xt, X, &XtX);
+ *   stb_invert_matrix(XtX, &XtX_inv);
+ *   stb_matrix_multiply(Xt, y, &Xty);
+ *   stb_matrix_multiply(XtX_inv, Xty, &beta);
+ */
 STB_EXTERN void stb_invert_matrix(STB_MAT *A, STB_MAT **Ainverted);
 
-/* Multiply an entire matrix by a single value */
+/* Scalar multiplication of matrix
+ * 
+ * Purpose: Multiplies every element of a matrix by a scalar value (in-place)
+ * 
+ * Mathematical: A ← k × A where A[i][j] ← k × A[i][j] for all i, j
+ * 
+ * Inputs:
+ *   A     - matrix to multiply (m × n)
+ *   value - scalar multiplier
+ * 
+ * Note: Modifies the input matrix directly
+ * 
+ * Applications:
+ *   - Scaling data to different ranges
+ *   - Normalization (divide by sum or standard deviation)
+ *   - Learning rate application in gradient descent
+ *   - Unit conversions
+ * 
+ * Example:
+ *   // Normalize by total sum
+ *   double total = stb_matrix_sum(A);
+ *   stb_matrix_multiply_by_value(A, 1.0 / total);
+ */
 STB_EXTERN void stb_matrix_multiply_by_value(STB_MAT *A, double value);
 
-/* Divide an entire matrix by a single value */
+/* Scalar division of matrix
+ * 
+ * Purpose: Divides every element of a matrix by a scalar value (in-place)
+ * 
+ * Mathematical: A ← A / k where A[i][j] ← A[i][j] / k for all i, j
+ * 
+ * Inputs:
+ *   A     - matrix to divide (m × n)
+ *   value - scalar divisor (must be non-zero)
+ * 
+ * Note: Modifies the input matrix directly
+ *       No checking for division by zero - caller must ensure value ≠ 0
+ * 
+ * Applications:
+ *   - Computing means (divide sum by count)
+ *   - Variance calculations: σ² = Σ(x - μ)² / (n-1)
+ *   - Normalizing by sample size
+ *   - TPM/CPM calculations in RNA-seq (divide by library size)
+ * 
+ * Example:
+ *   // Compute column means
+ *   STB_MAT *col_sums = compute_column_sums(data);
+ *   stb_matrix_divide_by_value(col_sums, data->rows);  // means
+ */
 STB_EXTERN void stb_matrix_divide_by_value(STB_MAT *A, double value);
 
-/* Returns the sum of a matrix */
+/* Sum of all matrix elements
+ * 
+ * Purpose: Computes the sum of all elements in a matrix
+ * 
+ * Mathematical: Σᵢⱼ A[i][j]
+ * 
+ * Inputs:
+ *   A - input matrix (m × n)
+ * 
+ * Returns: Sum of all elements as a double
+ * 
+ * Applications:
+ *   - Normalization (divide by total to get proportions)
+ *   - RNA-seq: library size calculation (total read counts)
+ *   - Statistics: computing grand mean
+ *   - Checking matrix properties
+ * 
+ * Example:
+ *   // Normalize count matrix to proportions
+ *   double total = stb_matrix_sum(counts);
+ *   stb_matrix_divide_by_value(counts, total);
+ */
 double stb_matrix_sum(STB_MAT *A);
 
-/* Returns a struct STB_MAT from a double matrix and the number of rows and columns */
+/* Create matrix from existing double array
+ * 
+ * Purpose: Wraps an existing 2D double array in an STB_MAT structure
+ * 
+ * Inputs:
+ *   data    - 2D array of doubles (data[row][column])
+ *   rows    - number of rows in the array
+ *   columns - number of columns in the array
+ * 
+ * Returns: Pointer to newly allocated STB_MAT structure
+ * 
+ * Memory: Only allocates the STB_MAT wrapper, NOT the data array
+ *         Caller must manage the original data array separately
+ *         Use stb_free_matrix() to free the wrapper (not the data)
+ * 
+ * Note: This is a shallow copy - modifying matrix->data affects the original array
+ * 
+ * Applications:
+ *   - Interfacing with existing data structures
+ *   - Avoiding data duplication for large arrays
+ *   - Using STB_MAT functions with externally allocated data
+ * 
+ * Example:
+ *   double **my_data = allocate_2d_array(100, 50);
+ *   // ... fill my_data ...
+ *   STB_MAT *matrix = stb_matrix_from_double(my_data, 100, 50);
+ *   stb_matrix_print(matrix);
+ *   stb_free_matrix(matrix);  // Frees wrapper only, not my_data
+ *   free_2d_array(my_data);   // Still need to free original data
+ */
 STB_EXTERN STB_MAT *stb_matrix_from_double(double **data, int rows, int columns);
 
-/* Reads a matrix from a tab seperated file.
- * The first line has two values the number of rows and the number of columns in the file.
- * The rest of the data are the actual values. Example:
- * 3	1 (3 rows and 1 column)
- * 62	
- * 66	
- * 61	
+/* Load matrix from tab-delimited file
+ * 
+ * Purpose: Reads a matrix from a structured text file
+ * 
+ * File format:
+ *   Line 1: <rows> <columns>  (tab-separated dimensions)
+ *   Lines 2-n: matrix values (tab-separated, one row per line)
+ * 
+ * Inputs:
+ *   filename - path to input file
+ * 
+ * Returns: Pointer to newly allocated STB_MAT structure containing the data
+ *          Returns NULL on file read error or format error
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Example file (3 rows × 4 columns):
+ *   3	4
+ *   1.0	2.0	3.0	4.0
+ *   5.0	6.0	7.0	8.0
+ *   9.0	10.0	11.0	12.0
+ * 
+ * Applications:
+ *   - Loading gene expression matrices
+ *   - Reading count tables from RNA-seq pipelines
+ *   - Importing experimental data
+ *   - Batch processing of multiple datasets
+ * 
+ * Note: Use scientific notation for very large/small values
+ *       Missing values will cause parsing errors
+ * 
+ * Example:
+ *   STB_MAT *counts = stb_matrix_from_file("gene_counts.txt");
+ *   if (counts == NULL) {
+ *       fprintf(stderr, "Failed to load matrix\n");
+ *       exit(1);
+ *   }
+ *   // ... analyze data ...
+ *   stb_free_matrix(counts);
  */
 STB_EXTERN STB_MAT *stb_matrix_from_file(char *filename);
 
-/* Perform quantile normalization between columns without a reference
-In statistics, quantile normalization is a technique for making two distributions identical in statistical properties.
-see: https://en.wikipedia.org/wiki/Quantile_normalization
-Arrays 1 to 3, genes A to D
-A    5    4    3
-B    2    1    4
-C    3    4    6
-D    4    2    8
-Converted to STB_MAT file test.mat:
-4 3
-5 4 3
-2 1 4
-3 4 6
-4 2 8
+/* ============================================================================
+ * NORMALIZATION METHODS
+ * ============================================================================ */
 
-will become:
-5.666667E+00 5.166667E+00 2.000000E+00 
-2.000000E+00 2.000000E+00 3.000000E+00 
-3.000000E+00 5.166667E+00 4.666667E+00 
-4.666667E+00 3.000000E+00 5.666667E+00
-
-statistics:
-Min.   :2.000   Min.   :2.000   Min.   :2.000  
-1st Qu.:2.750   1st Qu.:2.750   1st Qu.:2.750  
-Median :3.833   Median :4.083   Median :3.833  
-Mean   :3.833   Mean   :3.833   Mean   :3.833  
-3rd Qu.:4.917   3rd Qu.:5.167   3rd Qu.:4.917  
-Max.   :5.667   Max.   :5.167   Max.   :5.667  
+/* Quantile normalization without reference
+ * 
+ * Purpose: Makes the distributions of multiple samples identical by forcing them
+ *          to have the same quantiles. This removes systematic differences between
+ *          samples while preserving within-sample relationships.
+ * 
+ * Statistical method: Quantile normalization (Bolstad et al., 2003)
+ * 
+ * Algorithm:
+ *   1. Rank values within each column (sample)
+ *   2. Compute mean of values at each rank across all columns
+ *   3. Replace each value with the mean of its rank
+ *   4. Reorder to match original ranks
+ * 
+ * Result: All columns have identical distributions
+ * 
+ * Inputs:
+ *   original - matrix to normalize (rows = features, columns = samples)
+ *              Matrix is modified in-place
+ *   data     - 2D array version (for stb_qnorm)
+ *   rows     - number of features
+ *   columns  - number of samples
+ * 
+ * Note: Modifies input matrix/array in-place
+ * 
+ * Applications:
+ *   - Microarray data normalization
+ *   - RNA-seq data preprocessing (across replicates)
+ *   - ChIP-seq signal normalization
+ *   - Removing batch effects in genomics
+ *   - Making datasets comparable across experiments
+ * 
+ * Assumptions:
+ *   - Majority of features are not differentially expressed
+ *   - Systematic biases affect entire distributions
+ *   - Technical variation > biological variation
+ * 
+ * Advantages:
+ *   - Simple, fast, robust
+ *   - Makes samples directly comparable
+ *   - Removes many systematic biases
+ * 
+ * Disadvantages:
+ *   - May introduce spurious correlations
+ *   - Assumes all samples should have same distribution
+ *   - Can reduce true biological differences
+ *   - Not appropriate when samples are expected to differ globally
+ * 
+ * Example (genes × samples):
+ *   Before normalization:
+ *     Gene  S1   S2   S3
+ *     A     5    4    3
+ *     B     2    1    4
+ *     C     3    4    6
+ *     D     4    2    8
+ * 
+ *   After normalization (identical distributions):
+ *     Gene  S1    S2    S3
+ *     A     5.67  5.17  2.00
+ *     B     2.00  2.00  3.00
+ *     C     3.00  5.17  4.67
+ *     D     4.67  3.00  5.67
+ * 
+ *   Statistics (all columns identical after normalization):
+ *     Min    : 2.000  2.000  2.000
+ *     1st Qu : 2.750  2.750  2.750
+ *     Median : 3.833  4.083  3.833
+ *     Mean   : 3.833  3.833  3.833
+ *     3rd Qu : 4.917  5.167  4.917
+ *     Max    : 5.667  5.167  5.667
+ * 
+ * Usage:
+ *   STB_MAT *data = stb_matrix_from_file("expression.txt");
+ *   stb_qnorm_matrix(data);  // Normalize in-place
+ *   // ... proceed with normalized data ...
+ * 
+ * Reference: Bolstad, B. M., et al. (2003). A comparison of normalization
+ *            methods for high density oligonucleotide array data based on
+ *            variance and bias. Bioinformatics, 19(2), 185-193.
+ * 
+ * See also: stb_qnorm_matrix_with_reference() for target distribution normalization
  */
 STB_EXTERN void stb_qnorm_matrix(STB_MAT *original);
 STB_EXTERN void stb_qnorm(double **data, int rows, int columns);
 
-/* RSE Normalization
- *  STB_MAT *counts_A;
- *  int n;
- * counts_A = stb_matrix_from_file(argv[1]);
+/* ============================================================================
+ * RSE NORMALIZATION (Relative Size Factor Estimation)
+ * ============================================================================
  * 
- *  double *scaling_factors_A;
- *  double *common_means_A;
- *  double *common_vars_A;
- *
- *  calc_geometric_scaling_factors(counts_A, &scaling_factors_A);
- *
- *  meanvar_counts_to_common_scale(counts_A, scaling_factors_A, &common_means_A, &common_vars_A);
+ * Purpose: Normalizes count data (RNA-seq) using geometric mean-based size factors
+ *          to account for sequencing depth differences between samples
+ * 
+ * Method: DESeq normalization (Anders & Huber, 2010)
+ * 
+ * Algorithm:
+ *   1. Compute geometric mean of each gene across all samples (pseudo-reference)
+ *   2. For each sample, calculate ratio of each gene to its geometric mean
+ *   3. Size factor = median of ratios (excluding genes with geometric mean = 0)
+ *   4. Normalize counts by dividing by size factors
+ * 
+ * Advantages over simple total count normalization:
+ *   - Robust to genes with very high counts
+ *   - Not affected by outlier genes or highly expressed genes
+ *   - Accounts for composition bias (when few genes take up most reads)
+ *   - More accurate for differential expression analysis
+ * 
+ * Applications:
+ *   - RNA-seq normalization (primary use case)
+ *   - ChIP-seq read count normalization
+ *   - Any count-based sequencing data
+ *   - Preparing data for differential expression analysis (DESeq2, edgeR)
+ * 
+ * Typical workflow:
+ *   STB_MAT *counts = stb_matrix_from_file("raw_counts.txt");
+ *   double *scaling_factors;
+ *   double *normalized_means;
+ *   double *normalized_vars;
+ *   
+ *   // Step 1: Calculate size factors
+ *   stb_calc_geometric_scaling_factors(counts, &scaling_factors);
+ *   
+ *   // Step 2: Normalize and compute statistics
+ *   stb_meanvar_counts_to_common_scale(counts, scaling_factors, 
+ *                                      &normalized_means, &normalized_vars);
+ *   
+ *   // counts matrix now contains normalized values
+ *   // normalized_means and normalized_vars contain per-gene statistics
+ *   
+ *   free(scaling_factors);
+ *   free(normalized_means);
+ *   free(normalized_vars);
+ * 
+ * Reference: Anders, S., & Huber, W. (2010). Differential expression analysis
+ *            for sequence count data. Genome Biology, 11(10), R106.
+ * 
+ * See also: stb_fit_f_dist() for variance modeling after normalization
+ *           stb_moderated_ttest() for differential expression testing
  */
 
-/*this function estimates the size factors
-   as follows: Each column is divided by the geometric means of the rows. The median
-   (or, ir requested, another location estimator)
-   of these ratios (skipping the genes with a geometric mean of zero) is used as the
-   size factor for this column.
-   */
+/* Calculate geometric mean-based size factors
+ * 
+ * Purpose: Estimates sample-specific size factors for count normalization
+ *          This is step 1 of RSE/DESeq normalization
+ * 
+ * Method: Each column (sample) is divided by the geometric means of the rows (genes).
+ *         The median of these ratios is the size factor for that column.
+ * 
+ * Mathematical:
+ *   Geometric mean (gene i): GM_i = (∏_j counts[i][j])^(1/n_samples)
+ *   Ratio (gene i, sample j): R[i][j] = log(counts[i][j]) - log(GM_i)
+ *   Size factor (sample j): SF_j = exp(median(R[·][j]))
+ * 
+ * Inputs:
+ *   counts - raw count matrix (rows = genes, columns = samples)
+ *            Values should be integer-like (counts), >= 0
+ * 
+ * Outputs:
+ *   scaling_factors - array of size factors, one per sample (length = n_samples)
+ *                     Must be freed by caller
+ * 
+ * Note: Genes with geometric mean of zero are excluded from median calculation
+ *       Adds small pseudocount (DESEQ_TINY = 1e-8) to avoid log(0)
+ * 
+ * Interpretation: 
+ *   - Size factor > 1: sample has more reads than average, counts will be divided (scaled down)
+ *   - Size factor < 1: sample has fewer reads than average, counts will be divided (scaled up)
+ *   - Size factor = 1: sample is at geometric average sequencing depth
+ * 
+ * Applications:
+ *   - Required preprocessing for DESeq2-style analysis
+ *   - Accounts for library size differences in RNA-seq
+ *   - More robust than simple library size normalization
+ * 
+ * Example:
+ *   STB_MAT *raw_counts = stb_matrix_from_file("counts.txt");
+ *   double *sf;
+ *   stb_calc_geometric_scaling_factors(raw_counts, &sf);
+ *   
+ *   printf("Sample size factors:\n");
+ *   for (int i = 0; i < raw_counts->columns; i++) {
+ *       printf("Sample %d: %.4f\n", i, sf[i]);
+ *   }
+ *   
+ *   free(sf);
+ */
 STB_EXTERN void stb_calc_geometric_scaling_factors(STB_MAT *counts, double **scaling_factors);
 
-// Transform raw counts to the common scale. This is the actual RSE normalization
+/* Transform counts to common scale and compute statistics
+ * 
+ * Purpose: Applies size factors to normalize counts and computes per-gene statistics
+ *          This is step 2 of RSE/DESeq normalization
+ * 
+ * Method: Divides each sample's counts by its size factor, bringing all samples
+ *         to a common scale. Then computes mean and variance for each gene.
+ * 
+ * Mathematical:
+ *   Normalized count[i][j] = count[i][j] / size_factor[j]
+ *   Mean (gene i) = (1/n) Σ_j normalized_count[i][j]
+ *   Variance (gene i) = (1/(n-1)) Σ_j (normalized_count[i][j] - mean_i)²
+ * 
+ * Inputs:
+ *   counts          - count matrix (rows = genes, columns = samples)
+ *                     Modified in-place to contain normalized counts
+ *   scaling_factors - array of size factors (length = n_samples)
+ *                     From stb_calc_geometric_scaling_factors()
+ * 
+ * Outputs:
+ *   means - array of gene means on common scale (length = n_genes)
+ *           Must be freed by caller
+ *   vars  - array of gene variances on common scale (length = n_genes)
+ *           Must be freed by caller
+ * 
+ * Note: Modifies counts matrix in-place - original raw counts are lost
+ *       If you need to preserve raw counts, use stb_dup_matrix() first
+ * 
+ * Applications:
+ *   - Generates normalized counts for visualization and downstream analysis
+ *   - Provides variance estimates for dispersion modeling
+ *   - Required input for stb_fit_f_dist() variance shrinkage
+ *   - Normalized means can be used for fold change calculations
+ * 
+ * Example:
+ *   STB_MAT *counts = stb_matrix_from_file("raw_counts.txt");
+ *   double *sf, *means, *vars;
+ *   
+ *   // Calculate size factors
+ *   stb_calc_geometric_scaling_factors(counts, &sf);
+ *   
+ *   // Normalize and get statistics
+ *   stb_meanvar_counts_to_common_scale(counts, sf, &means, &vars);
+ *   
+ *   // counts now contains normalized values
+ *   // means[i] and vars[i] are statistics for gene i
+ *   
+ *   // Use for differential expression
+ *   double pvar, pdf2;
+ *   stb_fit_f_dist(vars, counts->rows, counts->columns - 1, &pvar, &pdf2);
+ *   
+ *   free(sf);
+ *   free(means);
+ *   free(vars);
+ * 
+ * Warning: After normalization, counts may no longer be integers and should
+ *          not be used with methods that assume count distributions (Poisson/NB)
+ *          Use normalized counts for visualization, not for statistical tests
+ */
 STB_EXTERN void stb_meanvar_counts_to_common_scale(STB_MAT *counts, double *scaling_factors, double **means, double **vars);
 
-/* Perform quantile normalization between columns with a reference, making the distribution of original equal to that of the reference
-In statistics, quantile normalization is a technique for making two distributions identical in statistical properties.
-
-NOTE:
-Given a reference distribution, the original distribution is normalized by replacing each of its values by the value of the variable with the same rank 
-in the reference distribution. If the reference distribution contains multiple samples, the original and reference distributions will only be identical if 
-the reference distribution is first quantile normalized across all samples!
-
-see: https://en.wikipedia.org/wiki/Quantile_normalization
-Arrays 1 to 3, genes A to D
-A    5    4    3
-B    2    1    4
-C    3    4    6
-D    4    2    8
-Converted to STB_MAT file test.mat:
-4 3
-5 4 3
-2 1 4
-3 4 6
-4 2 8
-
-Using the QUNATILE NORMALIZED reference:
-4 3
-5.666667E+00 5.166667E+00 2.000000E+00 
-2.000000E+00 2.000000E+00 3.000000E+00 
-3.000000E+00 5.166667E+00 4.666667E+00 
-4.666667E+00 3.000000E+00 5.666667E+00
-
-will become:
-5.666667E+00 5.166667E+00 2.000000E+00 
-2.000000E+00 2.000000E+00 3.000000E+00 
-3.000000E+00 5.166667E+00 4.666667E+00 
-4.666667E+00 3.000000E+00 5.666667E+00
-
-statistics:
-Min.   :2.000   Min.   :2.000   Min.   :2.000  
-1st Qu.:2.750   1st Qu.:2.750   1st Qu.:2.750  
-Median :3.833   Median :4.083   Median :3.833  
-Mean   :3.833   Mean   :3.833   Mean   :3.833  
-3rd Qu.:4.917   3rd Qu.:5.167   3rd Qu.:4.917  
-Max.   :5.667   Max.   :5.167   Max.   :5.667  
+/* Quantile normalization with reference distribution
+ * 
+ * Purpose: Normalizes data to match a specific reference distribution rather than
+ *          computing an average distribution from the input samples
+ * 
+ * Statistical method: Quantile normalization with target distribution
+ * 
+ * Algorithm:
+ *   1. Rank values within each column of original data
+ *   2. For each rank, find corresponding quantile in reference distribution
+ *   3. Replace each value with the reference quantile at its rank
+ *   4. Reorder to match original ranks
+ * 
+ * Result: Original distribution becomes identical to reference distribution
+ * 
+ * Inputs:
+ *   original  - matrix to normalize (rows = features, columns = samples)
+ *               Matrix is modified in-place
+ *   reference - target distribution matrix (same dimensions as original)
+ *               Should be pre-normalized (e.g., using stb_qnorm_matrix)
+ *   data      - 2D array version of original (for stb_qnorm_with_reference)
+ *   rows      - number of features
+ *   columns   - number of samples
+ * 
+ * Note: Modifies original matrix/array in-place
+ *       Reference should typically be quantile-normalized across samples first
+ * 
+ * Applications:
+ *   - Normalizing new samples to match existing datasets
+ *   - Batch effect correction (normalize to reference batch)
+ *   - Making test data match training data distribution
+ *   - Harmonizing data from different platforms or labs
+ *   - Adjusting datasets to a gold-standard reference
+ * 
+ * Advantages:
+ *   - Consistent normalization across batches
+ *   - New samples can be normalized to established reference
+ *   - Reduces batch effects systematically
+ *   - Maintains consistency with previously normalized data
+ * 
+ * Important: Reference distribution should be quantile-normalized first if it
+ *            contains multiple samples. This ensures all original samples are
+ *            normalized to the same target distribution.
+ * 
+ * Example workflow:
+ *   // Step 1: Create and normalize reference (e.g., from control samples)
+ *   STB_MAT *ref = stb_matrix_from_file("reference_controls.txt");
+ *   stb_qnorm_matrix(ref);  // Normalize reference across samples
+ * 
+ *   // Step 2: Normalize new experimental samples to reference
+ *   STB_MAT *data = stb_matrix_from_file("experimental_batch.txt");
+ *   stb_qnorm_matrix_with_reference(data, ref);
+ * 
+ *   // Now data has same distribution as reference
+ * 
+ * Use cases:
+ *   - RNA-seq: Normalize treatment samples to control distribution
+ *   - Microarray: Match new arrays to established cohort
+ *   - Multi-batch studies: Normalize all batches to first batch
+ *   - Clinical studies: Match patient samples to healthy reference
+ * 
+ * Caution: Only use when you expect samples to have similar distributions
+ *          or when you specifically want to impose a target distribution.
+ *          Not appropriate when biological differences are global.
+ * 
+ * Reference: Bolstad, B. M., et al. (2003). A comparison of normalization
+ *            methods for high density oligonucleotide array data.
+ *            Bioinformatics, 19(2), 185-193.
+ * 
+ * See also: stb_qnorm_matrix() for standard quantile normalization
  */
 STB_EXTERN void stb_qnorm_matrix_with_reference(STB_MAT *original, STB_MAT *reference);
 STB_EXTERN void stb_qnorm_with_reference(double **data, double **reference, int rows, int columns);
 
-/* Perform a simple linear regression and return a vector containing the Beta values, the T-test values 
- * and the corresponding P-values. The formula determined using the least squared method is:
- * Y = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
- * 
- * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
- */
-STB_EXTERN void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue);
+/* ============================================================================
+ * REGRESSION FUNCTIONS
+ * ============================================================================ */
 
-/* Perform a simple logistic regression and return a vector containing the Beta values, the Z-test values 
- * , the corresponding P-values and return the log-likelihood. The formula determined using the newton method is:
- * ln(1 / 1 - Y) = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
- *
- * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
+/* Multiple linear regression with hypothesis testing
+ * 
+ * Purpose: Fits a linear model to predict continuous outcomes from multiple predictors
+ *          and provides statistical inference for each coefficient
+ * 
+ * Statistical method: Ordinary Least Squares (OLS) regression
+ * 
+ * Model: Y = β₀ + β₁X₁ + β₂X₂ + ... + βₚXₚ + ε
+ *        where ε ~ N(0, σ²)
+ * 
+ * Solution: β = (A'A)⁻¹A'Y (normal equations)
+ * 
+ * Inputs:
+ *   A - design matrix (n × p+1) where n = samples, p = predictors
+ *       First column should be all 1s for intercept, or use stb_join_matrix()
+ *       to add intercept column
+ *   Y - response vector (n × 1) containing outcome values
+ * 
+ * Outputs:
+ *   beta   - coefficient estimates (p+1 × 1), beta[0] = intercept
+ *            Must be freed by caller
+ *   tvalue - t-statistics for testing H₀: βᵢ = 0 (p+1 × 1)
+ *            Must be freed by caller
+ *   pvalue - two-tailed p-values for each coefficient (p+1 × 1)
+ *            Must be freed by caller
+ * 
+ * Assumptions:
+ *   - Linear relationship between predictors and outcome
+ *   - Homoscedasticity (constant error variance)
+ *   - Independence of errors
+ *   - Normality of residuals (for inference)
+ *   - No perfect multicollinearity (A'A must be invertible)
+ * 
+ * Applications:
+ *   - Predicting continuous outcomes from features
+ *   - Gene expression: testing association with phenotypes
+ *   - Controlling for confounders (covariates in model)
+ *   - Dose-response relationships
+ *   - Feature importance via p-values
+ * 
+ * Interpretation:
+ *   - beta[i]: expected change in Y for one-unit increase in predictor i
+ *   - tvalue[i]: standardized effect size (beta[i] / SE(beta[i]))
+ *   - pvalue[i] < 0.05: predictor i is statistically significant
+ * 
+ * Example:
+ *   // Predict gene expression from age and sex
+ *   STB_MAT *intercept = stb_new_matrix(100, 1);
+ *   stb_fill_matrix(intercept, 1.0);
+ *   STB_MAT *predictors = ...; // 100 × 2 (age, sex)
+ *   STB_MAT *design;
+ *   stb_join_matrix(intercept, predictors, &design);  // 100 × 3
+ *   
+ *   STB_MAT *expression = ...; // 100 × 1
+ *   double *beta, *tval, *pval;
+ *   stb_multi_linear_regression(design, expression, &beta, &tval, &pval);
+ *   
+ *   printf("Intercept: β=%.4f, p=%.4e\n", beta[0], pval[0]);
+ *   printf("Age:       β=%.4f, p=%.4e\n", beta[1], pval[1]);
+ *   printf("Sex:       β=%.4f, p=%.4e\n", beta[2], pval[2]);
+ *   
+ *   free(beta); free(tval); free(pval);
+ * 
+ * Note: For large p (high-dimensional), consider regularization (ridge/lasso)
+ *       For heteroscedastic errors, use robust standard errors
+ *       Check model assumptions via residual diagnostics
+ * 
+ * Reference: Linear Models by Searle, S. R. (1971)
+ */
+STB_EXTERN void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
+
+/* Multiple logistic regression with hypothesis testing
+ * 
+ * Purpose: Fits a logistic model for binary outcomes and provides inference
+ *          Uses Newton-Raphson optimization for maximum likelihood estimation
+ * 
+ * Statistical method: Logistic regression (binomial GLM with logit link)
+ * 
+ * Model: logit(P(Y=1)) = log(P(Y=1)/(1-P(Y=1))) = β₀ + β₁X₁ + ... + βₚXₚ
+ *        P(Y=1|X) = 1 / (1 + exp(-(β₀ + β'X)))
+ * 
+ * Optimization: Newton-Raphson method to maximize log-likelihood
+ * 
+ * Inputs:
+ *   A - design matrix (n × p+1) where n = samples, p = predictors
+ *       First column should be all 1s for intercept
+ *   Y - binary response (n × 1) with values 0 or 1
+ * 
+ * Outputs:
+ *   beta   - coefficient estimates (p+1 × 1), beta[0] = log-odds intercept
+ *            Must be freed by caller
+ *   zvalue - Wald z-statistics for testing H₀: βᵢ = 0 (p+1 × 1)
+ *            Must be freed by caller
+ *   pvalue - two-tailed p-values for each coefficient (p+1 × 1)
+ *            Must be freed by caller
+ * 
+ * Returns: Log-likelihood of fitted model
+ * 
+ * Assumptions:
+ *   - Binary outcome (0/1)
+ *   - Independence of observations
+ *   - Linear relationship between predictors and log-odds
+ *   - No perfect separation (all Y=1 or Y=0 for some X combination)
+ *   - No perfect multicollinearity
+ * 
+ * Applications:
+ *   - Disease risk prediction (case/control)
+ *   - Classification with probability estimates
+ *   - Gene expression: case vs control association
+ *   - Genome-wide association studies (GWAS)
+ *   - Clinical outcome prediction
+ * 
+ * Interpretation:
+ *   - beta[i]: log odds-ratio for one-unit increase in predictor i
+ *   - exp(beta[i]): odds ratio (multiplicative effect on odds)
+ *   - zvalue[i]: standardized effect (beta[i] / SE(beta[i]))
+ *   - pvalue[i] < 0.05: predictor i significantly affects outcome
+ * 
+ * Example:
+ *   // Predict disease status from gene expression levels
+ *   STB_MAT *intercept = stb_new_matrix(200, 1);
+ *   stb_fill_matrix(intercept, 1.0);
+ *   STB_MAT *genes = ...; // 200 × 5 (5 gene expression levels)
+ *   STB_MAT *design;
+ *   stb_join_matrix(intercept, genes, &design);  // 200 × 6
+ *   
+ *   STB_MAT *disease = ...; // 200 × 1 (0=control, 1=case)
+ *   double *beta, *zval, *pval;
+ *   double loglik = stb_multi_logistic_regression(design, disease, 
+ *                                                  &beta, &zval, &pval);
+ *   
+ *   printf("Log-likelihood: %.4f\n", loglik);
+ *   for (int i = 0; i < 6; i++) {
+ *       double odds_ratio = exp(beta[i]);
+ *       printf("Coef %d: β=%.4f, OR=%.4f, p=%.4e\n", 
+ *              i, beta[i], odds_ratio, pval[i]);
+ *   }
+ *   
+ *   free(beta); free(zval); free(pval);
+ * 
+ * Note: Requires adequate sample size (rule of thumb: 10 events per predictor)
+ *       For rare outcomes or perfect separation, use Firth's penalized likelihood
+ *       For high-dimensional data, use regularization (see stb_logistic_regression_L2)
+ * 
+ * Reference: Hosmer, D. W., & Lemeshow, S. (2000). Applied Logistic Regression.
  */
 STB_EXTERN double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
-/* L2-regularized logistic regression
- * NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
- * NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+/* L2-regularized logistic regression (Ridge logistic regression)
+ * 
+ * Purpose: Fits logistic regression with L2 penalty to prevent overfitting
+ *          and handle high-dimensional data or multicollinearity
+ * 
+ * Statistical method: Penalized maximum likelihood estimation
+ * 
+ * Model: logit(P(Y=1)) = β'X (no automatic intercept added)
+ *        Minimizes: -log-likelihood + λΣβᵢ²
+ * 
+ * Regularization: Ridge (L2) penalty shrinks coefficients toward zero
+ *                 Reduces variance at cost of introducing small bias
+ * 
+ * Inputs:
+ *   A - design matrix (n × p), manually add intercept column if desired
+ *   Y - binary response (n × 1) with values +1 or -1 (NOT 0/1)
+ * 
+ * Outputs:
+ *   beta   - regularized coefficient estimates (p × 1)
+ *            Must be freed by caller
+ *   zvalue - Wald z-statistics (p × 1)
+ *            Must be freed by caller
+ *   pvalue - two-tailed p-values (p × 1)
+ *            Must be freed by caller
+ * 
+ * Important differences from stb_multi_logistic_regression:
+ *   - Y must be coded as +1/-1 instead of 1/0
+ *   - Intercept NOT automatically included - add column of 1s to A if needed
+ *   - Coefficients shrunk toward zero by regularization
+ * 
+ * Applications:
+ *   - High-dimensional classification (p > n or p ~ n)
+ *   - Preventing overfitting with many predictors
+ *   - Handling multicollinearity
+ *   - Machine learning classification tasks
+ *   - Genomics: when predictors >> samples
+ * 
+ * Advantages:
+ *   - Handles collinear predictors
+ *   - Works when p > n (more features than samples)
+ *   - Reduces model variance (overfitting)
+ *   - All coefficients remain in model (unlike L1/lasso)
+ * 
+ * Disadvantages:
+ *   - Biased estimates (coefficients shrunk)
+ *   - Requires tuning regularization parameter λ
+ *   - Does not perform variable selection
+ *   - p-values less reliable due to bias
+ * 
+ * Example:
+ *   // High-dimensional classification with 50 genes, 30 samples
+ *   STB_MAT *intercept = stb_new_matrix(30, 1);
+ *   stb_fill_matrix(intercept, 1.0);
+ *   STB_MAT *genes = ...; // 30 × 50
+ *   STB_MAT *design;
+ *   stb_join_matrix(intercept, genes, &design);  // 30 × 51
+ *   
+ *   STB_MAT *outcome = ...; // 30 × 1, values +1 or -1
+ *   double *beta, *zval, *pval;
+ *   stb_logistic_regression_L2(design, outcome, &beta, &zval, &pval);
+ *   
+ *   // Predict on new sample
+ *   double log_odds = beta[0];  // intercept
+ *   for (int i = 0; i < 50; i++) {
+ *       log_odds += beta[i+1] * new_sample[i];
+ *   }
+ *   double prob = 1.0 / (1.0 + exp(-log_odds));
+ *   
+ *   free(beta); free(zval); free(pval);
+ * 
+ * Note: λ parameter is hardcoded in implementation
+ *       For optimal λ, use cross-validation
+ *       For variable selection, consider L1 regularization (lasso)
+ * 
+ * Reference: Friedman, J., Hastie, T., & Tibshirani, R. (2010). 
+ *            Regularization paths for generalized linear models via coordinate descent.
  */
 STB_EXTERN void stb_logistic_regression_L2(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
-/* simple logistic regression
- * NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
- * NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+/* Unregularized logistic regression (alternative formulation)
+ * 
+ * Purpose: Simple logistic regression without regularization
+ *          Alternative to stb_multi_logistic_regression with different interface
+ * 
+ * Model: logit(P(Y=1)) = β'X (no automatic intercept)
+ * 
+ * Inputs:
+ *   A - design matrix (n × p), add intercept column manually if needed
+ *   Y - binary response (n × 1) with values +1 or -1 (NOT 0/1)
+ * 
+ * Outputs:
+ *   beta   - coefficient estimates (p × 1), must be freed by caller
+ *   zvalue - Wald z-statistics (p × 1), must be freed by caller
+ *   pvalue - two-tailed p-values (p × 1), must be freed by caller
+ * 
+ * Important differences from stb_multi_logistic_regression:
+ *   - Y must be coded as +1/-1 instead of 1/0
+ *   - Intercept NOT automatically included
+ *   - No regularization applied
+ * 
+ * Applications:
+ *   - Binary classification with moderate dimensions
+ *   - When you want explicit control over intercept
+ *   - Interfacing with code expecting +1/-1 labels
+ * 
+ * Example:
+ *   STB_MAT *design = ...; // n × p (with intercept if desired)
+ *   STB_MAT *labels = ...; // n × 1 (values +1 or -1)
+ *   double *beta, *zval, *pval;
+ *   stb_logistic_regression(design, labels, &beta, &zval, &pval);
+ *   
+ *   free(beta); free(zval); free(pval);
+ * 
+ * Note: Prefer stb_multi_logistic_regression for standard use
+ *       This function useful when +1/-1 encoding is required
  */
 STB_EXTERN void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
