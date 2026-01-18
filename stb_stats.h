@@ -540,6 +540,25 @@ STB_EXTERN double stb_sidak(double p, int number_of_comparisons);
  */
 STB_EXTERN double stb_bonferroni(double p, int number_of_comparisons);
 
+/* Apply Benjamini-Hochberg FDR correction to an array of p-values and return adjusted p-values.
+ * p_values: array of p-values to adjust
+ * n: number of p-values
+ * adjusted_p: output array for adjusted p-values (must be pre-allocated)
+ * FDR: false discovery rate (typically 0.05 or 0.1)
+ * 
+ * The function sorts p-values, applies BH correction, and returns adjusted p-values in original order.
+ */
+STB_EXTERN void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double FDR);
+
+/* Calculate log2 fold change between two groups.
+ * mean1: mean of group 1
+ * mean2: mean of group 2
+ * pseudocount: small value to add to avoid log(0), typically 1.0
+ * 
+ * Returns: log2(mean1 + pseudocount) - log2(mean2 + pseudocount)
+ */
+STB_EXTERN double stb_log2_fold_change(double mean1, double mean2, double pseudocount);
+
 /* Perform the Mann-Whitney U test, the resulting corrected P-value should be the same as that of the R statistical program.
  * However, for tied data no exact P values is calculated. It is possible, but would require a more complicated program see
  * for example:
@@ -2845,6 +2864,59 @@ double stb_sidak(double p, int number_of_comparisons)
 double stb_bonferroni(double p, int number_of_comparisons)
 {
 	return p / (double) number_of_comparisons;
+}
+
+/* Apply Benjamini-Hochberg FDR correction to an array of p-values */
+void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double FDR)
+{
+	if (n <= 0) return;
+	
+	/* Create array of indices for sorting */
+	int *indices = malloc(n * sizeof(int));
+	for (int i = 0; i < n; i++) {
+		indices[i] = i;
+	}
+	
+	/* Sort indices by p-values (ascending) */
+	for (int i = 0; i < n - 1; i++) {
+		for (int j = i + 1; j < n; j++) {
+			if (p_values[indices[i]] > p_values[indices[j]]) {
+				int temp = indices[i];
+				indices[i] = indices[j];
+				indices[j] = temp;
+			}
+		}
+	}
+	
+	/* Calculate adjusted p-values using BH procedure */
+	double *sorted_adjusted = malloc(n * sizeof(double));
+	for (int i = 0; i < n; i++) {
+		int rank = i + 1; /* rank starts at 1 */
+		double bhcv = stb_benjamini_hochberg(rank, n, FDR);
+		/* Adjusted p-value is p / (rank/n) = p * n / rank */
+		sorted_adjusted[i] = fmin(1.0, p_values[indices[i]] * n / rank);
+	}
+	
+	/* Enforce monotonicity (adjusted p-values should be non-decreasing) */
+	for (int i = n - 2; i >= 0; i--) {
+		if (sorted_adjusted[i] > sorted_adjusted[i + 1]) {
+			sorted_adjusted[i] = sorted_adjusted[i + 1];
+		}
+	}
+	
+	/* Put adjusted p-values back in original order */
+	for (int i = 0; i < n; i++) {
+		adjusted_p[indices[i]] = sorted_adjusted[i];
+	}
+	
+	free(indices);
+	free(sorted_adjusted);
+}
+
+/* Calculate log2 fold change between two groups */
+double stb_log2_fold_change(double mean1, double mean2, double pseudocount)
+{
+	return log2(mean1 + pseudocount) - log2(mean2 + pseudocount);
 }
 
 double stb_log_hypergeometric_prob(int a,int b,int c,int d) 
