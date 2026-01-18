@@ -1,13 +1,43 @@
+/* spearman.c - Spearman's Rank Correlation Calculator
+ * 
+ * A sample C program for calculating Spearman's rank correlation coefficient
+ * between two data files using stb_stats.h.
+ *
+ * This program performs:
+ * 1. Reads tab-separated data files (e.g., HTSeq count files)
+ * 2. Extracts count values from the third column (gene_ID, gene_name, counts format)
+ * 3. Optionally filters data based on minimum value threshold
+ * 4. Calculates Spearman's rank correlation coefficient
+ *
+ * Input format: TAB-delimited files with gene_ID, gene_name, and counts
+ * Expected format: gene_ID\tgene_name\tcount_value
+ *
+ * Usage: spearman [options] file1 file2
+ */
+
 #define STB_STATS_DEFINE
 #include "stb_stats.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <getopt.h>
 
 void print_usage(const char *prog_name) {
-	fprintf(stderr, "USAGE: %s [options] file1 file2\n", prog_name);
+	fprintf(stderr, "Usage: %s [options] file1 file2\n\n", prog_name);
+	fprintf(stderr, "Spearman's Rank Correlation Calculator\n");
+	fprintf(stderr, "Calculates Spearman's rank correlation coefficient between two data files.\n\n");
+	fprintf(stderr, "Arguments:\n");
+	fprintf(stderr, "  file1, file2            Input TAB-delimited files (e.g., HTSeq count files)\n");
+	fprintf(stderr, "                          Expected format: gene_ID\\tgene_name\\tcount_value\n\n");
 	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "  -h, --help           Show this help message\n");
-	fprintf(stderr, "  -s, --skip-header    Skip the first line (header) in both files\n");
-	fprintf(stderr, "  -m, --min-val VALUE  Minimum value threshold for filtering\n");
+	fprintf(stderr, "  -h, --help              Show this help message\n");
+	fprintf(stderr, "  -s, --skip-header       Skip the first line (header) in both files\n");
+	fprintf(stderr, "  -m, --min-val VALUE     Minimum value threshold for filtering (keep pairs where\n");
+	fprintf(stderr, "                          at least one value meets the threshold)\n\n");
+	fprintf(stderr, "Output:\n");
+	fprintf(stderr, "  file1\\tfile2\\tcorrelation_coefficient\n\n");
+	fprintf(stderr, "Example:\n");
+	fprintf(stderr, "  %s sample1.txt sample2.txt -s -m 10\n", prog_name);
 }
 
 int main(int argc, char *argv[])

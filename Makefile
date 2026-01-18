@@ -8,13 +8,15 @@ TARGET = dim_reduce
 TARGET2 = deseq2_example
 TARGET3 = test_stb_stats
 TARGET4 = test_isolated
+TARGET5 = spearman
 SOURCE = dim_reduce.c
 SOURCE2 = deseq2_example.c
 SOURCE3 = test_stb_stats.c
 SOURCE4 = test_isolated.c
+SOURCE5 = spearman.c
 HEADER = stb_stats.h
 
-all: $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4)
+all: $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4) $(TARGET5)
 
 $(TARGET): $(SOURCE) $(HEADER)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCE) $(LDFLAGS)
@@ -28,8 +30,11 @@ $(TARGET3): $(SOURCE3) $(HEADER)
 $(TARGET4): $(SOURCE4) $(HEADER)
 	$(CC) $(CFLAGS) -o $(TARGET4) $(SOURCE4) $(LDFLAGS)
 
+$(TARGET5): $(SOURCE5) $(HEADER)
+	$(CC) $(CFLAGS) -o $(TARGET5) $(SOURCE5) $(LDFLAGS)
+
 clean:
-	rm -f $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4) *.o
+	rm -f $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4) $(TARGET5) *.o
 
 test: $(TARGET3)
 	@echo "Running comprehensive stb_stats test suite..."

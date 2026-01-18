@@ -3,6 +3,7 @@ dim_reduce
 deseq2_example
 test_stb_stats
 test_isolated
+spearman
 *.o
 
 # Test files

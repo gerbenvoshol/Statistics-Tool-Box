@@ -122,6 +122,43 @@ make
 ./dim_reduce data.txt -a umap --neighbors 15 -o output.txt
 ```
 
+### spearman - Spearman's Rank Correlation Calculator
+
+A sample C program for calculating Spearman's rank correlation coefficient between two data files.
+
+**Features:**
+- Reads tab-separated data files (e.g., HTSeq count files)
+- Supports standard HTSeq format: gene_ID, gene_name, counts
+- Optional header skipping
+- Optional filtering by minimum value threshold
+- Uses `stb_spearman` for efficient rank correlation calculation
+
+**Input format:**
+- TAB-delimited files with three columns: gene_ID, gene_name, and count values
+- Commonly used for RNAseq data (HTSeq count files)
+- Example format:
+  ```
+  ENSG00000000003	TSPAN6	1234
+  ENSG00000000005	TNMD	567
+  ```
+
+**Quick start:**
+```bash
+make
+./spearman sample1.txt sample2.txt
+./spearman sample1.txt sample2.txt -s           # Skip header
+./spearman sample1.txt sample2.txt -m 10        # Filter with min value 10
+./spearman sample1.txt sample2.txt -s -m 10     # Both options
+```
+
+**Options:**
+- `-s, --skip-header`: Skip the first line (header) in both files
+- `-m, --min-val VALUE`: Minimum value threshold for filtering (keeps pairs where at least one value meets the threshold)
+- `-h, --help`: Show help message
+
+**Output:**
+- TAB-delimited format: `file1\tfile2\tcorrelation_coefficient`
+
 CITATION
 
 If you use this Tool-Box in a publication, please reference:
