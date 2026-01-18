@@ -4219,21 +4219,25 @@ char **stb_fgetlns(char *filename, size_t *number_of_lines)
 	/* Close the file */
 	fclose(f);
 
-	/* Count the number of new lines */
+	/* Count the number of lines (separated by \n, \r, or \r\n) */
 	p = buffer;
 	size_t i = 0;
 	while (p[i]) {
-		if (p[i] == '\n') {
-			if ( p[i+1] == '\r') {
-				count++;
+		if (p[i] == '\r') {
+			count++;
+			/* Handle \r\n as a single line ending */
+			if (p[i+1] == '\n') {
 				i++;
-			} else {
-				count++;
 			}
-		} else if (*p == '\r') {
+		} else if (p[i] == '\n') {
 			count++;
 		}
 		i++;
+	}
+	
+	/* If file ends with newline, we counted one too many */
+	if (fsize > 0 && (buffer[fsize-1] == '\n' || buffer[fsize-1] == '\r')) {
+		count--;
 	}
 
 	if (number_of_lines) {
@@ -4259,23 +4263,18 @@ char **stb_fgetlns(char *filename, size_t *number_of_lines)
 	count = 0;
 	sfile[count] = &p[i];
 	while (p[i]) {
-		if (p[i] == '\n') {
-			if ( p[i+1] == '\r') {
-				p[i] = '\0';
+		if (p[i] == '\r') {
+			p[i] = '\0';
+			count++;
+			/* Handle \r\n as a single line ending */
+			if (p[i+1] == '\n') {
 				p[i+1] = '\0';
-				count++;
 				i++;
-				if (p[i+1]) {
-					sfile[count] = &p[i+1];
-				}
-			} else {
-				p[i] = '\0';
-				count++;
-				if (p[i+1]) {
-					sfile[count] = &p[i+1];
-				}
 			}
-		} else if (*p == '\r') {
+			if (p[i+1]) {
+				sfile[count] = &p[i+1];
+			}
+		} else if (p[i] == '\n') {
 			p[i] = '\0';
 			count++;
 			if (p[i+1]) {
