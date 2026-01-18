@@ -237,7 +237,7 @@ int load_data(Config *config, double ***data_out, char ***sample_names_out,
             int nf = parse_line(buffer, fields, MAX_FIELDS);
             if (nf > 0 && row_idx < *n_features) {
                 for (int i = 0; i < *n_samples; i++) {
-                    (*data_out)[i][row_idx] = atof(fields[config->skip_cols + i]);
+                    (*data_out)[i][row_idx] = atof(fields[offset + i]);
                 }
                 row_idx++;
             }
