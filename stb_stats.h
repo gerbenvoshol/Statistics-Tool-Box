@@ -4222,11 +4222,11 @@ char **stb_fgetlns(char *filename, size_t *number_of_lines)
 	/* Count the number of lines (separated by \n, \r, or \r\n) */
 	p = buffer;
 	size_t i = 0;
-	while (p[i]) {
+	while (i < fsize && p[i]) {
 		if (p[i] == '\r') {
 			count++;
 			/* Handle \r\n as a single line ending */
-			if (p[i+1] == '\n') {
+			if (i + 1 < fsize && p[i+1] == '\n') {
 				i++;
 			}
 		} else if (p[i] == '\n') {
@@ -4262,22 +4262,22 @@ char **stb_fgetlns(char *filename, size_t *number_of_lines)
 	i = 0;
 	count = 0;
 	sfile[count] = &p[i];
-	while (p[i]) {
+	while (i < fsize && p[i]) {
 		if (p[i] == '\r') {
 			p[i] = '\0';
 			count++;
 			/* Handle \r\n as a single line ending */
-			if (p[i+1] == '\n') {
+			if (i + 1 < fsize && p[i+1] == '\n') {
 				p[i+1] = '\0';
 				i++;
 			}
-			if (p[i+1]) {
+			if (i + 1 < fsize && p[i+1]) {
 				sfile[count] = &p[i+1];
 			}
 		} else if (p[i] == '\n') {
 			p[i] = '\0';
 			count++;
-			if (p[i+1]) {
+			if (i + 1 < fsize && p[i+1]) {
 				sfile[count] = &p[i+1];
 			}
 		}
