@@ -17,10 +17,11 @@
 
 #define STB_STATS_DEFINE
 #include "stb_stats.h"
+#include <getopt.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <getopt.h>
 
 void print_usage(const char *prog_name) {
 	fprintf(stderr, "Usage: %s [options] file1 file2\n\n", prog_name);
@@ -43,7 +44,8 @@ void print_usage(const char *prog_name) {
 int main(int argc, char *argv[])
 {
 	int skip_header = 0;
-	double min_val = -INFINITY;
+	int use_min_val = 0;
+	double min_val = 0.0;
 	
 	static struct option long_options[] = {
 		{"help", no_argument, 0, 'h'},
@@ -63,6 +65,7 @@ int main(int argc, char *argv[])
 				break;
 			case 'm':
 				min_val = atof(optarg);
+				use_min_val = 1;
 				break;
 			default:
 				print_usage(argv[0]);
@@ -149,7 +152,7 @@ int main(int argc, char *argv[])
 	double *f1, *f2;
 	size_t filtered_n;
 	
-	if (min_val != -INFINITY) {
+	if (use_min_val) {
 		// Allocate filtered arrays
 		f1 = malloc(n * sizeof(double));
 		f2 = malloc(n * sizeof(double));
