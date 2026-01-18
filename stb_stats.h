@@ -2508,50 +2508,168 @@ STB_EXTERN long double stb_log_gamma(double N);
 /* The normalized incomplete beta function. */
 STB_EXTERN long double stb_incbeta(double a, double b, double x);
 
-/* The function dbinom returns the value of the probability density function (pdf) 
- * of the binomial distribution given a certain random variable x, number of trials
- * (size) and probability of success on each trial (prob) 
+/* Binomial probability mass function (PMF)
+ * 
+ * Purpose: Calculates probability of exactly x successes in size trials
+ * 
+ * Distribution: Binomial distribution B(size, prob)
+ * PMF: P(X = x) = C(size,x) × prob^x × (1-prob)^(size-x)
+ * 
+ * Inputs:
+ *   x    - number of successes (0 ≤ x ≤ size)
+ *   size - number of independent trials (n)
+ *   prob - probability of success on each trial (0 ≤ prob ≤ 1)
+ * 
+ * Returns: Probability of observing exactly x successes
+ * 
+ * Applications: Discrete events with binary outcomes (success/failure)
+ *               Quality control, genetics (allele frequencies),
+ *               clinical trials (treatment success rates)
+ * 
+ * Note: Use normal approximation for large size (np > 5 and n(1-p) > 5)
  */
 STB_EXTERN double stb_pdf_binom(double x, double size, double prob);
 
-/* Returns the value of the Poisson probability density function. In other
- * words, the dpois function finds the probability that a certain number 
- * of successes (x) occur based on an average rate of success (lambda)
+/* Poisson probability mass function (PMF)
+ * 
+ * Purpose: Calculates probability of exactly x events in fixed interval
+ * 
+ * Distribution: Poisson distribution Pois(λ)
+ * PMF: P(X = x) = (λ^x × e^(-λ)) / x!
+ * 
+ * Inputs:
+ *   x      - number of events (non-negative integer)
+ *   lambda - average rate of events per interval (λ > 0)
+ * 
+ * Returns: Probability of observing exactly x events
+ * 
+ * Applications: Rare events with constant average rate
+ *               RNA-seq count data (before normalization)
+ *               Mutation counts, radioactive decay
+ *               Website hits, customer arrivals
+ * 
+ * Note: Approximates binomial when n large, p small, and np moderate
+ *       Mean = Variance = λ (equidispersion property)
  */
 STB_EXTERN double stb_pdf_pois(double x, double lambda);
 
-/* Returns the probability of obtaining x from a hypergeometric distribution 
- * with parameters N, n, k 
- * [[https://stattrek.com/probability-distributions/hypergeometric.aspx]]
- * Suppose we randomly select 5 cards without replacement from an ordinary deck of 
- * playing cards. What is the probability of getting exactly 2 red cards (i.e., hearts or diamonds)?
- *
- * N = 52; since there are 52 cards in a deck.
- * k = 26; since there are 26 red cards in a deck.
- * n = 5; since we randomly select 5 cards from the deck.
- * x = 2; since 2 of the cards we select are red.
+/* Hypergeometric probability mass function (PMF)
+ * 
+ * Purpose: Calculates probability of x successes in sample drawn without replacement
+ * 
+ * Distribution: Hypergeometric distribution HyperGeo(N, k, n)
+ * PMF: P(X = x) = C(k,x) × C(N-k, n-x) / C(N, n)
+ * 
+ * Inputs:
+ *   x - number of successes observed in sample
+ *   N - population size (total number of items)
+ *   n - sample size (number of items drawn)
+ *   k - number of success states in population
+ * 
+ * Returns: Probability of observing exactly x successes
+ * 
+ * Applications: Sampling without replacement from finite populations
+ *               Gene set enrichment analysis (GO, KEGG pathways)
+ *               Fisher's exact test for 2×2 contingency tables
+ *               Quality control (defective items in batch)
+ * 
+ * Example: Drawing 5 cards from deck (N=52), probability of 2 red cards (k=26, x=2)
+ * 
+ * Note: Approaches binomial when N >> n (sampling with replacement approximation)
+ * 
+ * Reference: https://stattrek.com/probability-distributions/hypergeometric.aspx
  */      
 STB_EXTERN double stb_pdf_hypgeo(int x, int N, int n, int k);
 
-// Hash function: Murmer One At A Time 32 bit
+/* MurmurHash 32-bit hash function
+ * 
+ * Purpose: Fast non-cryptographic hash function for strings
+ * 
+ * Algorithm: MurmurHash variant (One-At-A-Time style)
+ * 
+ * Inputs:
+ *   key - null-terminated string to hash
+ * 
+ * Returns: 32-bit hash value
+ * 
+ * Applications: Hash tables, data structures, checksums
+ * 
+ * Note: Not cryptographically secure; use for hash tables, not security
+ */
 STB_EXTERN inline uint32_t stb_murmer32(const char *key);
 
-// Hash function: Murmer One At A Time 64 bit
+/* MurmurHash 64-bit hash function
+ * 
+ * Purpose: Fast non-cryptographic hash function for strings
+ * 
+ * Algorithm: MurmurHash variant (One-At-A-Time style)
+ * 
+ * Inputs:
+ *   key - null-terminated string to hash
+ * 
+ * Returns: 64-bit hash value
+ * 
+ * Applications: Hash tables for large datasets, distributed systems
+ * 
+ * Note: Better avalanche properties and lower collision rate than 32-bit version
+ */
 STB_EXTERN inline uint64_t stb_murmer64(const char *key);
 
-/* Calculate the Shannon Index (a.k.a. Shannon's diversity index, the Shannon–Wiener index, 
- * the Shannon–Weaver index, the Shannon entropy). Pilou evenness compares the actual diversity
- * value (such as the Shannon Index, H′) to the maximum possible diversity value (when all species
- * are equally common, Hmax=ln S where S is the total number of species). 
- * The higher the Shannon index, the more diverse the species are in the habitat.
- * Evenness gives you a value between 0 and 1. The lower the evenness, the higher the diversity.
+/* Shannon diversity index and Pielou's evenness
+ * 
+ * Purpose: Measures species diversity accounting for richness and evenness
+ * 
+ * Formula: H' = -Σ(pi × ln(pi)) where pi = ni/N
+ *          Evenness J' = H' / ln(S) where S = number of species
+ * 
+ * Inputs:
+ *   data - array of species counts/abundances
+ *   n    - number of species
+ * 
+ * Outputs:
+ *   index    - Shannon diversity index H' (higher = more diverse)
+ *   evenness - Pielou's evenness J' (0-1, lower = higher diversity)
+ * 
+ * Interpretation:
+ *   H' typically ranges 1.5-3.5 (higher in tropical regions)
+ *   H' = 0 when only one species present
+ *   J' near 1: species equally abundant (even)
+ *   J' near 0: one species dominates (uneven)
+ * 
+ * Applications: Ecology (alpha diversity)
+ *               Microbiome analysis (species richness in samples)
+ *               Biodiversity assessment, conservation biology
+ * 
+ * Note: Also known as Shannon-Wiener or Shannon-Weaver index
  */
 STB_EXTERN void stb_shannon(double *data, size_t n, double *index, double *evenness);
 
-/* Simpson's Diversity Index is a measure of diversity which takes into account the number of species
- * present, as well as the relative abundance of each species. As species richness and evenness 
- * increase, so diversity increases. The value ranges between 0 and 1. One represents infinite diversity
- * and 0, no diversity.
+/* Simpson's diversity index
+ * 
+ * Purpose: Measures diversity with emphasis on dominant species
+ * 
+ * Formula: D = 1 - Σ[ni(ni-1)] / [N(N-1)]
+ *          where ni = count of species i, N = total count
+ * 
+ * Inputs:
+ *   data  - array of species counts/abundances
+ *   n     - number of species
+ * 
+ * Outputs:
+ *   index - Simpson's diversity index D (0-1 range)
+ * 
+ * Interpretation:
+ *   D = 1: Infinite diversity (all species equally abundant)
+ *   D = 0: No diversity (one species dominates)
+ *   Higher values indicate greater diversity
+ * 
+ * Applications: Ecology (alpha diversity)
+ *               Measures probability that two randomly selected
+ *               individuals belong to different species
+ *               More weight to abundant species than Shannon index
+ * 
+ * Note: Less sensitive to species richness than Shannon index
+ *       More affected by changes in dominant species
  */
 STB_EXTERN void stb_simpson(double *data, size_t n, double *index);
 
@@ -2563,9 +2681,38 @@ STB_EXTERN void stb_simpson(double *data, size_t n, double *index);
  */
 STB_EXTERN double stb_jaccard(char **setA, size_t n_setA, char **setB, size_t n_setB);
 
-/* The Bray–Curtis dissimilarity is a measure used to quantify the compositional dissimilarity between two 
- * different sites, based on counts (c_setA and c_setB) at each site. The Bray–Curtis dissimilarity is bounded between 0 and 1, 
- * where 0 means the two sites have the same composition and 1 means the two sites do not share any species.
+/* Bray-Curtis dissimilarity
+ * 
+ * Purpose: Measures compositional dissimilarity between communities with abundances
+ * 
+ * Formula: BC = 1 - (2×Σmin(ni,A, ni,B)) / (Σni,A + Σni,B)
+ *          where ni = count of species i at site
+ * 
+ * Inputs:
+ *   setA   - array of species names in site A
+ *   c_setA - array of counts/abundances for each species in A
+ *   n_setA - number of species in site A
+ *   setB   - array of species names in site B
+ *   c_setB - array of counts/abundances for each species in B
+ *   n_setB - number of species in site B
+ * 
+ * Returns: Bray-Curtis dissimilarity (0-1 range)
+ * 
+ * Interpretation:
+ *   BC = 0: Sites have identical composition
+ *   BC = 1: Sites share no species
+ *   Lower values indicate greater similarity
+ * 
+ * Applications: Beta diversity with abundance data
+ *               Community ecology (comparing sites)
+ *               Microbiome analysis (sample dissimilarity)
+ *               Preferred over Euclidean distance for count data
+ * 
+ * Advantages: Accounts for abundance, not just presence/absence
+ *             Robust to differences in sampling effort
+ *             Bounded between 0 and 1
+ * 
+ * Note: Also known as Sørensen dissimilarity when using quantitative data
  */
 STB_EXTERN double stb_bray_curtis(char **setA, double *c_setA, size_t n_setA, char **setB, double *c_setB, size_t n_setB);
 
