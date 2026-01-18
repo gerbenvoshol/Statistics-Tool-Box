@@ -17,6 +17,16 @@ This is a single header file inspired by stb.h by Sean Barrett with a bunch of u
 	 All other files should just #include "stb_stats.h" without the #define.
  ============================================================================
 
+## Repository Structure
+
+- `stb_stats.h` - Main header file with statistical functions
+- `examples/` - Example programs demonstrating library usage:
+  - `dim_reduce.c` - Dimensionality reduction (PCA, t-SNE, UMAP)
+  - `deseq2_example.c` - DESeq2-style differential expression analysis
+  - `spearman.c` - Spearman's rank correlation calculator
+- `test_stb_stats.c` - Comprehensive test suite
+- `test_isolated.c` - Isolated tests for specific functions
+
 Functions included are:
 * **stb_tsne** (t-SNE: t-Distributed Stochastic Neighbor Embedding with Barnes-Hut approximation)
 * **stb_umap** (UMAP: Uniform Manifold Approximation and Projection)
