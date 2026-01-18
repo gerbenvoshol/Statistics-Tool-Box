@@ -165,11 +165,39 @@ void perform_deseq2_analysis(STB_MAT *counts, Config *config, FILE *output) {
     double *t_values = malloc(n_genes * sizeof(double));
     double *log2fc = malloc(n_genes * sizeof(double));
     double *baseMean = malloc(n_genes * sizeof(double));
+    
+    if (!p_values || !t_values || !log2fc || !baseMean) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        free(p_values);
+        free(t_values);
+        free(log2fc);
+        free(baseMean);
+        free(scaling_factors);
+        free(common_means);
+        free(common_vars);
+        stb_free_matrix(normalized_counts);
+        return;
+    }
 
     for (i = 0; i < n_genes; i++) {
         /* Extract group data from normalized counts */
         double *group1_data = malloc(config->group1_count * sizeof(double));
         double *group2_data = malloc(config->group2_count * sizeof(double));
+        
+        if (!group1_data || !group2_data) {
+            fprintf(stderr, "Error: Memory allocation failed\n");
+            free(group1_data);
+            free(group2_data);
+            free(p_values);
+            free(t_values);
+            free(log2fc);
+            free(baseMean);
+            free(scaling_factors);
+            free(common_means);
+            free(common_vars);
+            stb_free_matrix(normalized_counts);
+            return;
+        }
         
         for (j = 0; j < config->group1_count; j++) {
             group1_data[j] = normalized_counts->data[i][config->group1_start + j];
@@ -203,6 +231,19 @@ void perform_deseq2_analysis(STB_MAT *counts, Config *config, FILE *output) {
     /* Step 5: Apply Benjamini-Hochberg FDR correction */
     fprintf(stderr, "Step 5: Applying multiple testing correction (FDR)...\n");
     double *adjusted_p = malloc(n_genes * sizeof(double));
+    if (!adjusted_p) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        free(p_values);
+        free(t_values);
+        free(log2fc);
+        free(baseMean);
+        free(scaling_factors);
+        free(common_means);
+        free(common_vars);
+        stb_free_matrix(normalized_counts);
+        return;
+    }
+    
     stb_adjust_pvalues_bh(p_values, n_genes, adjusted_p, config->fdr);
 
     /* Step 6: Output results */

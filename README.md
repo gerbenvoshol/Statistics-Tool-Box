@@ -81,6 +81,7 @@ A sample C program demonstrating DESeq2-style differential expression analysis u
 **Quick start:**
 ```bash
 make
+# Example with first 3 samples as group 1 (columns 0-2) and next 3 as group 2 (columns 3-5)
 ./deseq2_example sample_counts.txt --g1-start 0 --g1-count 3 --g2-start 3 --g2-count 3 -o results.txt
 ```
 

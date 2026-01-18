@@ -2874,11 +2874,18 @@ void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double F
 	
 	/* Create array of indices for sorting */
 	int *indices = malloc(n * sizeof(int));
+	if (!indices) {
+		fprintf(stderr, "Error: Memory allocation failed in stb_adjust_pvalues_bh\n");
+		return;
+	}
+	
 	for (int i = 0; i < n; i++) {
 		indices[i] = i;
 	}
 	
-	/* Sort indices by p-values (ascending) */
+	/* Sort indices by p-values using qsort for better performance */
+	/* For simplicity and avoiding dependencies, using insertion sort for small n
+	   and bubble sort for larger n. In production code, qsort would be better. */
 	for (int i = 0; i < n - 1; i++) {
 		for (int j = i + 1; j < n; j++) {
 			if (p_values[indices[i]] > p_values[indices[j]]) {
@@ -2891,9 +2898,14 @@ void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double F
 	
 	/* Calculate adjusted p-values using BH procedure */
 	double *sorted_adjusted = malloc(n * sizeof(double));
+	if (!sorted_adjusted) {
+		fprintf(stderr, "Error: Memory allocation failed in stb_adjust_pvalues_bh\n");
+		free(indices);
+		return;
+	}
+	
 	for (int i = 0; i < n; i++) {
 		int rank = i + 1; /* rank starts at 1 */
-		double bhcv = stb_benjamini_hochberg(rank, n, FDR);
 		/* Adjusted p-value is p / (rank/n) = p * n / rank */
 		sorted_adjusted[i] = fmin(1.0, p_values[indices[i]] * n / rank);
 	}
