@@ -422,6 +422,17 @@ typedef unsigned long long _flag_t;
     return P##nexti(table, idx);                                               \
   }
 
+/* String comparison helper function
+ * 
+ * Purpose: Safe string comparison that handles NULL pointers
+ * 
+ * Inputs:
+ *   l - first string to compare
+ *   r - second string to compare
+ * 
+ * Returns: 0 if strings are equal, non-zero otherwise
+ *          Returns 1 if either string is NULL
+ */
 STB_EXTERN int stb_strcmp(char * l, char *r);
 
 /* Example usage
@@ -482,37 +493,209 @@ struct stb_hist {
 	double *count;
 };
 
-/* Given  an  array  of data (length n), this routine  returns  its  mean and sample variance calculated using the Welford’s method. */
+/* Calculate mean and sample variance using Welford's method
+ * 
+ * Purpose: Computes the arithmetic mean and sample variance of a dataset using
+ *          Welford's numerically stable one-pass algorithm
+ * 
+ * Algorithm: Welford's method (1962) - provides better numerical stability than
+ *            the naive two-pass algorithm, especially for datasets with large means
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements in the array
+ * 
+ * Outputs:
+ *   mean            - pointer to store the calculated mean
+ *   sample_variance - pointer to store the sample variance (denominator: n-1)
+ * 
+ * Note: Uses n-1 in denominator (Bessel's correction) for unbiased variance estimate
+ */
 STB_EXTERN void stb_meanvar(double *data, int n, double *mean, double *sample_variance);
 
-/* Given  two arrays  of data (length n1 and n2), this routine  returns  its  t value and its significance (p) as probabiilty
- * NOTE: assumes equal variance 
+/* Student's t-test for two independent samples (equal variance assumed)
+ * 
+ * Purpose: Tests whether two independent samples have different means
+ *          Uses pooled variance estimate (assumes equal population variances)
+ * 
+ * Statistical test: Student's t-test (1908)
+ * Null hypothesis: The two populations have equal means
+ * Assumptions:
+ *   - Both samples are independent
+ *   - Both populations are normally distributed (robust to mild violations)
+ *   - Equal population variances (homoscedasticity)
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   t - t-statistic value
+ *   p - two-tailed p-value for the test
+ * 
+ * Usage: Use stb_uttest() if variances are unequal (heteroscedastic data)
+ *        Use stb_ftest() to check for equal variances first
  */
 STB_EXTERN void stb_ttest(double *data1, int n1, double *data2, int n2, double *t, double *p);
 
-/* Given  two arrays  of data (length n1 and n2), this routine  returns  its  t value and its significance (p) as probabiilty
- * NOTE: assumes unequal variance 
+/* Welch's t-test for two independent samples (unequal variance assumed)
+ * 
+ * Purpose: Tests whether two independent samples have different means
+ *          Does not assume equal population variances (heteroscedastic data)
+ * 
+ * Statistical test: Welch's t-test (1947), also known as Welch's unequal variances t-test
+ * Null hypothesis: The two populations have equal means
+ * Assumptions:
+ *   - Both samples are independent
+ *   - Both populations are normally distributed (robust to mild violations)
+ *   - No assumption of equal variances
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   t - t-statistic value (Welch's t)
+ *   p - two-tailed p-value for the test
+ * 
+ * Note: Uses Welch-Satterthwaite equation for degrees of freedom
+ *       Generally more robust than Student's t-test when variances differ
  */
 STB_EXTERN void stb_uttest(double *data1, int n1, double *data2, int n2, double *t, double *p);
 
-// moderated ttest using a posterior variance estimated using stb_fit_f_dist
+/* Moderated t-test with empirical Bayes variance shrinkage
+ * 
+ * Purpose: Tests for differential expression using moderated t-statistics
+ *          Borrows information across genes to improve variance estimates
+ * 
+ * Statistical method: Empirical Bayes moderated t-test (used in limma/DESeq2)
+ * Applications: RNA-seq differential expression, microarray analysis
+ * 
+ * Method: Shrinks gene-wise variances toward a common value (posterior variance)
+ *         using hyperparameters estimated from the overall variance distribution
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample/condition
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample/condition
+ *   n2    - number of elements in second sample
+ *   pvar  - posterior variance (from stb_fit_f_dist)
+ *   pdf2  - prior degrees of freedom (from stb_fit_f_dist)
+ * 
+ * Outputs:
+ *   t - moderated t-statistic
+ *   p - two-tailed p-value
+ * 
+ * Usage: First estimate hyperparameters using stb_fit_f_dist on all genes/features
+ *        Then apply moderated t-test to each gene individually
+ * 
+ * Reference: Smyth, G. K. (2004). Linear models and empirical bayes methods for
+ *           assessing differential expression in microarray experiments.
+ */
 STB_EXTERN void stb_moderated_ttest(double *data1, int n1, double *data2, int n2, double pvar, double pdf2, double *t, double *p);
 
-/* Given  two arrays  of data (length n1 and n2), this routine  returns  its  f value and its significance (p) as probabiilty */
+/* F-test for equality of variances
+ * 
+ * Purpose: Tests whether two independent samples have equal variances
+ *          Used to check homoscedasticity assumption before t-test
+ * 
+ * Statistical test: F-test for variance ratio (Fisher, 1924)
+ * Null hypothesis: The two populations have equal variances (σ1² = σ2²)
+ * Assumptions:
+ *   - Both samples are independent
+ *   - Both populations are normally distributed (sensitive to violations)
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   f - F-statistic (ratio of variances)
+ *   p - two-tailed p-value for the test
+ * 
+ * Note: Very sensitive to non-normality; consider Levene's or Bartlett's test
+ *       for robust variance equality testing
+ *       If p < 0.05, use Welch's t-test (stb_uttest) instead of Student's t-test
+ */
 STB_EXTERN void stb_ftest(double *data1, int n1, double *data2, int n2, double *f, double *p);
 
-/* This function takes two arrays, one with the data (of total size n) and one specifying the group (0, 1, 2, ...) (with g groups) the data belongs to (total size n) and
- * performs an one-way anova and followed by the Tukey HSD test and Scheffe's method of mutliple comparisons 
+/* One-way Analysis of Variance (ANOVA) with post-hoc tests
+ * 
+ * Purpose: Tests whether three or more groups have significantly different means
+ *          Includes Tukey HSD and Scheffe's method for multiple comparisons
+ * 
+ * Statistical test: One-way ANOVA (Fisher, 1925)
+ * Null hypothesis: All group means are equal (μ1 = μ2 = ... = μg)
+ * Assumptions:
+ *   - Samples are independent
+ *   - Populations are normally distributed (robust to mild violations)
+ *   - Equal population variances (homoscedasticity)
+ * 
+ * Inputs:
+ *   data   - array of all values from all groups
+ *   n      - total number of elements across all groups
+ *   groups - array mapping each data point to its group (0, 1, 2, ..., g-1)
+ *   g      - number of groups
+ * 
+ * Outputs:
+ *   f - F-statistic
+ *   p - p-value for the F-test
+ * 
+ * Post-hoc: Performs Tukey HSD (Honest Significant Difference) test and
+ *           Scheffe's method for pairwise comparisons after significant ANOVA
+ * 
+ * Note: Use stb_kruskal_wallis() for non-parametric alternative
  */
 STB_EXTERN void stb_anova(double *data, int n, int *groups, int g, double *f, double *p);
 
-/* This function takes two arrays, one with the data (of total size n) and one specifying the group (0, 1, 2, ...) (with g groups) the data belongs to (total size n) and
- * performs an one-way Kruskal-Wallis test.
- * Note:the number of samples per groups should be >> 5, otherwise the distribution is not similar enough to the ChiSqr
+/* Kruskal-Wallis H test for independent samples (non-parametric ANOVA)
+ * 
+ * Purpose: Tests whether multiple groups have different distributions
+ *          Non-parametric alternative to one-way ANOVA
+ * 
+ * Statistical test: Kruskal-Wallis H test (1952)
+ * Null hypothesis: All groups have the same distribution
+ * Assumptions:
+ *   - Samples are independent
+ *   - Ordinal or continuous data
+ *   - Similar distribution shapes (tests for location shifts)
+ * 
+ * Inputs:
+ *   data   - array of all values from all groups
+ *   n      - total number of elements across all groups
+ *   groups - array mapping each data point to its group (0, 1, 2, ..., g-1)
+ *   g      - number of groups
+ * 
+ * Outputs:
+ *   H - H-statistic (chi-square distributed under null hypothesis)
+ *   p - p-value (based on chi-square distribution)
+ * 
+ * Note: Each group should have >> 5 samples for chi-square approximation to be valid
+ *       For very small samples, exact distribution should be used
+ *       Use when ANOVA assumptions (normality, homoscedasticity) are violated
  */
 STB_EXTERN void stb_kruskal_wallis(double *data, int n, int *groups, int g, double *H, double *p);
 
-/* The function Φ(x) is the cumulative density function (CDF) of a standard normal (Gaussian) random variable */
+/* Standard normal cumulative distribution function (CDF)
+ * 
+ * Purpose: Returns the cumulative probability P(X ≤ x) for standard normal distribution
+ *          The function Φ(x) = P(Z ≤ x) where Z ~ N(0,1)
+ * 
+ * Inputs:
+ *   x - value at which to evaluate the CDF
+ * 
+ * Returns: Probability that a standard normal random variable is less than or equal to x
+ * 
+ * Applications: Converting z-scores to probabilities, hypothesis testing, confidence intervals
+ * 
+ * Note: For non-standard normal N(μ, σ²), first standardize: z = (x - μ) / σ
+ */
 STB_EXTERN double stb_phi(double x);
 
 /* Given a rank (starting at 1 for the lowest p-value), the total number of comparisons performed and
@@ -533,11 +716,46 @@ STB_EXTERN double stb_phi(double x);
  */
 STB_EXTERN double stb_benjamini_hochberg(int rank, int number_of_comparisons, double FDR);
 
-/* Returns the adjusted Sidak corrected P-value, the advantage is that you don't need to have a sorted list of P-values,
+/* Šidák correction for multiple comparisons
+ * 
+ * Purpose: Adjusts p-values to control family-wise error rate (FWER)
+ *          More powerful than Bonferroni when tests are independent
+ * 
+ * Method: Šidák correction (1967)
+ * Formula: p_adjusted = 1 - (1 - p)^m where m = number of comparisons
+ * 
+ * Inputs:
+ *   p                      - original p-value
+ *   number_of_comparisons  - total number of statistical tests performed
+ * 
+ * Returns: Adjusted p-value controlling FWER at desired alpha level
+ * 
+ * Advantage: No need for sorted p-values (unlike Benjamini-Hochberg)
+ * Note: Assumes independence of tests; less conservative than Bonferroni
+ *       Controls family-wise error rate, not false discovery rate
  */
 STB_EXTERN double stb_sidak(double p, int number_of_comparisons);
 
-/* Returns the adjusted bonferroni corrected P-value, the advantage is that you don't need to have a sorted list of P-values,
+/* Bonferroni correction for multiple comparisons
+ * 
+ * Purpose: Adjusts p-values to control family-wise error rate (FWER)
+ *          Most conservative multiple testing correction
+ * 
+ * Method: Bonferroni correction (1936)
+ * Formula: p_adjusted = p × m where m = number of comparisons
+ * 
+ * Inputs:
+ *   p                      - original p-value
+ *   number_of_comparisons  - total number of statistical tests performed
+ * 
+ * Returns: Adjusted p-value (capped at 1.0) controlling FWER at desired alpha level
+ * 
+ * Advantage: No need for sorted p-values (unlike Benjamini-Hochberg)
+ *            Makes no assumptions about test dependence
+ * 
+ * Note: Very conservative, reduces statistical power significantly
+ *       Controls family-wise error rate, not false discovery rate
+ *       Consider Benjamini-Hochberg for less conservative FDR control
  */
 STB_EXTERN double stb_bonferroni(double p, int number_of_comparisons);
 
@@ -560,12 +778,35 @@ STB_EXTERN void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_
  */
 STB_EXTERN double stb_log2_fold_change(double mean1, double mean2, double pseudocount);
 
-/* Perform the Mann-Whitney U test, the resulting corrected P-value should be the same as that of the R statistical program.
- * However, for tied data no exact P values is calculated. It is possible, but would require a more complicated program see
- * for example:
- * Alexander Marx, Christina Backes, Eckart Meese, Hans-Peter Lenhof, Andreas Keller,
- * EDISON-WMW: Exact Dynamic Programing Solution of the Wilcoxon–Mann–Whitney Test,
- * Genomics, Proteomics & Bioinformatics, Volume 14, Issue 1, 2016, Pages 55-61
+/* Mann-Whitney U test (Wilcoxon rank-sum test)
+ * 
+ * Purpose: Tests whether two independent samples have different distributions
+ *          Non-parametric alternative to independent samples t-test
+ * 
+ * Statistical test: Mann-Whitney U test (1947) / Wilcoxon rank-sum test (1945)
+ * Null hypothesis: The two populations have identical distributions
+ * Assumptions:
+ *   - Samples are independent
+ *   - Ordinal or continuous data
+ *   - Similar distribution shapes (for location shift interpretation)
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   U - U-statistic (smaller of U1 and U2)
+ *   p - two-tailed p-value (consistent with R's wilcox.test)
+ * 
+ * Note: Results match R statistical program for untied data
+ *       For tied data, normal approximation is used (not exact p-value)
+ *       Use when t-test assumptions are violated (non-normal data)
+ * 
+ * Reference: For exact p-values with ties, see:
+ *           Marx et al. (2016) EDISON-WMW: Exact Dynamic Programming Solution
+ *           of the Wilcoxon-Mann-Whitney Test. Genomics Proteomics Bioinformatics, 14(1), 55-61
  */
 STB_EXTERN void stb_mann_whitney(double *data1, int n1, double *data2, int n2, double *U, double *p);
 
@@ -579,40 +820,210 @@ STB_EXTERN void stb_mann_whitney(double *data1, int n1, double *data2, int n2, d
  */
 STB_EXTERN void stb_fisher2x2(int a, int b, int c, int d, double *p);
 
-/* Given a vector with observed and expected values with the amount of rows and columns, this function
- * performs the chisquare test and returns 
+/* Chi-square goodness-of-fit test (vector input)
+ * 
+ * Purpose: Tests whether observed frequencies match expected frequencies
+ *          Used for categorical data analysis
+ * 
+ * Statistical test: Pearson's chi-square test (1900)
+ * Null hypothesis: Observed frequencies follow the expected distribution
+ * Assumptions:
+ *   - Expected frequency ≥ 5 for each cell (rule of thumb)
+ *   - Observations are independent
+ * 
+ * Inputs:
+ *   observed - array of observed frequencies (flattened row×column matrix)
+ *   expected - array of expected frequencies (same dimensions)
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - chi-square statistic (test statistic value)
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: For small expected frequencies (<5), consider Fisher's exact test
+ *       Degrees of freedom = (rows-1) × (columns-1)
  */
 STB_EXTERN void stb_chisqr(double *observed, double *expected, int rows, int columns, double *CV, double *p);
 
-/* Given a matrix with observed and expected values with the amount of rows anc columns, this function
- * performs the chisquare test and returns 
+/* Chi-square goodness-of-fit test (matrix input)
+ * 
+ * Purpose: Tests whether observed frequencies match expected frequencies
+ *          Matrix version for direct 2D array input
+ * 
+ * Statistical test: Pearson's chi-square test (1900)
+ * Null hypothesis: Observed frequencies follow the expected distribution
+ * Assumptions:
+ *   - Expected frequency ≥ 5 for each cell (rule of thumb)
+ *   - Observations are independent
+ * 
+ * Inputs:
+ *   observed - 2D array of observed frequencies [rows][columns]
+ *   expected - 2D array of expected frequencies [rows][columns]
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - chi-square statistic (test statistic value)
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: Identical to stb_chisqr but accepts 2D arrays directly
  */
 STB_EXTERN void stb_chisqr_matrix(double **observed, double **expected, int rows, int columns, double *CV, double *p);
 
-/* Given a vector with observed and expected values with the amount of rows anc columns, this function
- * performs the G-test and returns the probability (based on the ChiSquared distribution)
+/* G-test of independence (vector input)
+ * 
+ * Purpose: Tests independence in contingency tables using likelihood ratios
+ *          Alternative to chi-square test, often more accurate for small samples
+ * 
+ * Statistical test: G-test (log-likelihood ratio test)
+ * Null hypothesis: Variables are independent (no association)
+ * Assumptions:
+ *   - Observations are independent
+ *   - Test statistic follows chi-square distribution asymptotically
+ * 
+ * Inputs:
+ *   observed - array of observed frequencies (flattened row×column matrix)
+ *   expected - array of expected frequencies (same dimensions)
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - G-statistic (2 × sum of observed × ln(observed/expected))
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: G-test is recommended over chi-square for small expected frequencies
+ *       Converges to chi-square for large samples
+ *       Also known as maximum likelihood chi-square or likelihood ratio test
  */
 STB_EXTERN void stb_gtest(double *observed, double *expected, int rows, int columns, double *CV, double *p);
 
-/* Given a matrix with observed and expected values with the amount of rows and columns, this function
- * performs the G-test and returns the probability (based on the ChiSquared distribution)
+/* G-test of independence (matrix input)
+ * 
+ * Purpose: Tests independence in contingency tables using likelihood ratios
+ *          Matrix version for direct 2D array input
+ * 
+ * Statistical test: G-test (log-likelihood ratio test)
+ * Null hypothesis: Variables are independent (no association)
+ * Assumptions:
+ *   - Observations are independent
+ *   - Test statistic follows chi-square distribution asymptotically
+ * 
+ * Inputs:
+ *   observed - 2D array of observed frequencies [rows][columns]
+ *   expected - 2D array of expected frequencies [rows][columns]
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - G-statistic (2 × sum of observed × ln(observed/expected))
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: Identical to stb_gtest but accepts 2D arrays directly
  */
 STB_EXTERN void stb_gtest_matrix(double **observed, double **expected, int rows, int columns, double *CV, double *p);
 
-/* Given an array of data, this function tests if the data is normally distributed
- * and returns the A value and the p-value. If the p-value is small (<0.05) the data is
- * not normally distributed! Care should be taken that the number of samples is not too
- * small, since this can lead to false positives/negatives (sample size > 7)
+/* Anderson-Darling test for normality (one-sample)
+ * 
+ * Purpose: Tests whether a sample comes from a normal distribution
+ *          More sensitive than Kolmogorov-Smirnov test to deviations in tails
+ * 
+ * Statistical test: Anderson-Darling test (1952)
+ * Null hypothesis: The data follows a normal distribution
+ * Assumptions:
+ *   - Continuous data
+ *   - Sample size > 7 (for reliable results)
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements (should be > 7)
+ * 
+ * Outputs:
+ *   A - Anderson-Darling A² statistic
+ *   p - p-value (if p < 0.05, reject normality assumption)
+ * 
+ * Note: Small sample sizes can lead to unreliable results
+ *       Use before applying parametric tests that assume normality
+ *       More powerful than Shapiro-Wilk for detecting deviations in tails
+ * 
+ * Applications: Verifying assumptions for t-test, ANOVA, linear regression
  */
 STB_EXTERN void stb_anderson_darling(double *data, int n, double *A, double *p);
 
-/* Anderson-Darling 2-sample test. */
+/* Anderson-Darling two-sample test
+ * 
+ * Purpose: Tests whether two samples come from the same distribution
+ *          Non-parametric test, does not assume specific distribution
+ * 
+ * Statistical test: Anderson-Darling k-sample test (Scholz & Stephens, 1987)
+ * Null hypothesis: Both samples come from the same continuous distribution
+ * Assumptions:
+ *   - Samples are independent
+ *   - Continuous data
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   A - Anderson-Darling A² statistic
+ *   p - p-value for the test
+ * 
+ * Applications: Comparing distributions without assuming normality
+ *               More powerful than Kolmogorov-Smirnov for detecting differences
+ */
 STB_EXTERN void stb_2sample_anderson_darling(double *data1, int n1, double *data2, int n2, double *A, double *p);
 
-/* Anderson-Darling k-sample test. */
+/* Anderson-Darling k-sample test
+ * 
+ * Purpose: Tests whether k samples (k ≥ 2) come from the same distribution
+ *          Extension of two-sample test to multiple groups
+ * 
+ * Statistical test: Anderson-Darling k-sample test (Scholz & Stephens, 1987)
+ * Null hypothesis: All samples come from the same continuous distribution
+ * Assumptions:
+ *   - Samples are independent
+ *   - Continuous data
+ * 
+ * Inputs:
+ *   data   - array of all values from all groups
+ *   n      - total number of elements across all groups
+ *   groups - array mapping each data point to its group (0, 1, 2, ..., g-1)
+ *   g      - number of groups (k ≥ 2)
+ * 
+ * Outputs:
+ *   A - Anderson-Darling A²k statistic
+ *   p - p-value for the test
+ * 
+ * Applications: Non-parametric alternative to ANOVA for comparing distributions
+ *               Does not require normality or equal variances
+ */
 STB_EXTERN void stb_ksample_anderson_darling(double *data, int n, int *groups, int g, double *A, double *p);
 
-/* This function returns the min , q1, q2, q3 and max values according to https://en.wikipedia.org/wiki/Quartile */
+/* Calculate quartiles and five-number summary
+ * 
+ * Purpose: Computes the five-number summary of a dataset
+ *          Provides robust measures of central tendency and spread
+ * 
+ * Method: Uses Method 2 from https://en.wikipedia.org/wiki/Quartile
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements in the array
+ * 
+ * Outputs:
+ *   min    - minimum value
+ *   q1     - first quartile (25th percentile)
+ *   median - median (second quartile, 50th percentile)
+ *   q3     - third quartile (75th percentile)
+ *   max    - maximum value
+ * 
+ * Applications: Exploratory data analysis, box plots, outlier detection
+ *               Interquartile range (IQR) = q3 - q1
+ *               Outliers often defined as values < q1 - 1.5×IQR or > q3 + 1.5×IQR
+ */
 STB_EXTERN void stb_quartiles(double *data, int n, double *min, double *q1, double *median, double *q3, double *max);
 
 /* Free a histogram */
