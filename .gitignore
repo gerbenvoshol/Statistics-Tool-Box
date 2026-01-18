@@ -1,6 +1,8 @@
 # Build artifacts
 dim_reduce
 deseq2_example
+test_stb_stats
+test_isolated
 *.o
 
 # Test files

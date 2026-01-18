@@ -1253,10 +1253,10 @@ STB_EXTERN double stb_pdf_pois(double x, double lambda);
 STB_EXTERN double stb_pdf_hypgeo(int x, int N, int n, int k);
 
 // Hash function: Murmer One At A Time 32 bit
-STB_EXTERN uint32_t inline stb_murmer32(const char *key);
+STB_EXTERN inline uint32_t stb_murmer32(const char *key);
 
 // Hash function: Murmer One At A Time 64 bit
-STB_EXTERN uint64_t inline stb_murmer64(const char *key);
+STB_EXTERN inline uint64_t stb_murmer64(const char *key);
 
 /* Calculate the Shannon Index (a.k.a. Shannon's diversity index, the Shannon–Wiener index, 
  * the Shannon–Weaver index, the Shannon entropy). Pilou evenness compares the actual diversity
@@ -2868,7 +2868,7 @@ double stb_bonferroni(double p, int number_of_comparisons)
 }
 
 /* Apply Benjamini-Hochberg FDR correction to an array of p-values */
-void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double FDR)
+void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double FDR __attribute__((unused)))
 {
 	if (n <= 0) return;
 	
@@ -5082,7 +5082,6 @@ STB_MAT *stb_matrix_from_file(char *filename)
 int stb_didx(double *values, int **idx, int **ranks, int **counts, int len)
 {
         int current, prev, i;
-        double count = 0;
         int *tmpcounts = calloc(len, sizeof(double));
         int *tmpranks = calloc(len, sizeof(double));
         int *tmpidx = calloc(len, sizeof(int));
@@ -7402,7 +7401,7 @@ void stb_neugas(double **x, int n, int p, int k, double ***cret, int **zret, dou
 } /* end of neugas */
 
 // Murmer One At A Time 32 bit
-uint32_t inline stb_murmer32(const char *key)
+inline uint32_t stb_murmer32(const char *key)
 {
     uint32_t h = 3323198485ul;
     for (;*key;++key) {
@@ -7415,7 +7414,7 @@ uint32_t inline stb_murmer32(const char *key)
 }
 
 // Murmer One At A Time 64 bit
-uint64_t inline stb_murmer64(const char *key)
+inline uint64_t stb_murmer64(const char *key)
 {
     uint64_t h = 525201411107845655ull;
     for (;*key;++key) {

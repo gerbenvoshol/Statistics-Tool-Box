@@ -1,4 +1,4 @@
-# Makefile for dim_reduce example program
+# Makefile for dim_reduce example program and test suite
 
 CC = gcc
 CFLAGS = -O2 -Wall -Wextra -std=c99 -D_GNU_SOURCE
@@ -6,11 +6,15 @@ LDFLAGS = -lm -lz
 
 TARGET = dim_reduce
 TARGET2 = deseq2_example
+TARGET3 = test_stb_stats
+TARGET4 = test_isolated
 SOURCE = dim_reduce.c
 SOURCE2 = deseq2_example.c
+SOURCE3 = test_stb_stats.c
+SOURCE4 = test_isolated.c
 HEADER = stb_stats.h
 
-all: $(TARGET) $(TARGET2)
+all: $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4)
 
 $(TARGET): $(SOURCE) $(HEADER)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCE) $(LDFLAGS)
@@ -18,10 +22,24 @@ $(TARGET): $(SOURCE) $(HEADER)
 $(TARGET2): $(SOURCE2) $(HEADER)
 	$(CC) $(CFLAGS) -o $(TARGET2) $(SOURCE2) $(LDFLAGS)
 
-clean:
-	rm -f $(TARGET) $(TARGET2) *.o
+$(TARGET3): $(SOURCE3) $(HEADER)
+	$(CC) $(CFLAGS) -o $(TARGET3) $(SOURCE3) $(LDFLAGS)
 
-test: $(TARGET)
+$(TARGET4): $(SOURCE4) $(HEADER)
+	$(CC) $(CFLAGS) -o $(TARGET4) $(SOURCE4) $(LDFLAGS)
+
+clean:
+	rm -f $(TARGET) $(TARGET2) $(TARGET3) $(TARGET4) *.o
+
+test: $(TARGET3)
+	@echo "Running comprehensive stb_stats test suite..."
+	./$(TARGET3)
+
+test-isolated: $(TARGET4)
+	@echo "Running isolated tests for problematic functions..."
+	./$(TARGET4)
+
+test-dim: $(TARGET)
 	@echo "Testing PCA..."
 	./$(TARGET) test_data.txt -a pca -o test_pca.txt
 	@echo "Testing t-SNE..."
@@ -29,4 +47,4 @@ test: $(TARGET)
 	@echo "Testing UMAP..."
 	./$(TARGET) test_data.txt -a umap -o test_umap.txt
 
-.PHONY: all clean test
+.PHONY: all clean test test-isolated test-dim
