@@ -4924,7 +4924,7 @@ double stb_polygamma(int k, double x)
     int i, j;
     int i2, isgn;
 
-    if (k < 0 || x < 0.0 || !finite(x)) {   /* k < 0 or x < 0 or x is neither infinite nor a "not-a-number" (NaN) */
+    if (k < 0 || x < 0.0 || !isfinite(x)) {   /* k < 0 or x < 0 or x is neither infinite nor a "not-a-number" (NaN) */
         /*
          * DOMAIN error: polygamma(x) return NaN
          */
