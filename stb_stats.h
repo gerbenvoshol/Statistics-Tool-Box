@@ -698,21 +698,45 @@ STB_EXTERN void stb_kruskal_wallis(double *data, int n, int *groups, int g, doub
  */
 STB_EXTERN double stb_phi(double x);
 
-/* Given a rank (starting at 1 for the lowest p-value), the total number of comparisons performed and
- * the desired false discovery rate this function returns the Benjamini-Hochberg threshold. In other words,
- * if you put the individual P values in order, from smallest to largest. The smallest P value has a rank
- * 1, the next has 2, etc. Compare each individual P value to its Benjamini-Hochberg critical value (BHCV,
- * (rank/number_of_samples)*FDR. The largest P value that has P<BHCV is significant, and all of the P values
- * smaller than it are also significant, even the ones that aren't less than their Benjamini-Hochberg
- * critical value (see example).In general a FDR between 0.1 - 0.2 is reasonable.
- *
- * Dietary variable P value Rank BHCV
- * Total           <0.002   1    0.010
- * Carbohydrates    0.009   2    0.020
- * Fat              0.035   3    0.030
- * Sugars           0.044   4    0.040 <- Note that this value is higher than the BHCV but is
- * Proteins         0.046   5    0.050 <- with a FDR of 0.25 everyting BEFORE protein is siginificant also the sugars
- * Saturated        0.062   6    0.060
+/* Benjamini-Hochberg critical value for FDR control
+ * 
+ * Purpose: Computes the critical value threshold for a given rank in the 
+ *          Benjamini-Hochberg procedure for controlling false discovery rate
+ * 
+ * Statistical method: Benjamini-Hochberg procedure (1995)
+ * Controls: False Discovery Rate (FDR) - the expected proportion of false 
+ *           discoveries among all rejections
+ * 
+ * Procedure: Sort p-values from smallest to largest (rank 1 = smallest)
+ *            Compare each p-value to its critical value: (rank/m) × FDR
+ *            The largest p-value satisfying p < critical value is significant
+ *            All p-values with smaller ranks are also significant
+ * 
+ * Inputs:
+ *   rank                   - position in sorted p-values (1 = smallest, 2 = second smallest, etc.)
+ *   number_of_comparisons  - total number of hypothesis tests (m)
+ *   FDR                    - desired false discovery rate (typically 0.05, 0.1, or 0.2)
+ * 
+ * Returns: Benjamini-Hochberg critical value (BHCV) for the given rank
+ * 
+ * Example:
+ *   Dietary variable  P value  Rank  BHCV (FDR=0.25)
+ *   Total             <0.002   1     0.010
+ *   Carbohydrates      0.009   2     0.020
+ *   Fat                0.035   3     0.030
+ *   Sugars             0.044   4     0.040 <- Above threshold but still significant
+ *   Proteins           0.046   5     0.050 <- Largest significant (everything before is significant)
+ *   Saturated          0.062   6     0.060 <- Not significant
+ * 
+ * Applications: Multiple hypothesis testing, genomics, high-throughput screening
+ * Advantage: More powerful than FWER methods (Bonferroni, Šidák)
+ * 
+ * Note: Use stb_adjust_pvalues_bh() to automatically apply correction to arrays
+ *       Typical FDR values: 0.05 (stringent), 0.1-0.2 (reasonable), >0.25 (liberal)
+ * 
+ * Reference: Benjamini, Y., & Hochberg, Y. (1995). Controlling the false 
+ *            discovery rate: a practical and powerful approach to multiple testing.
+ *            Journal of the Royal Statistical Society: Series B, 57(1), 289-300.
  */
 STB_EXTERN double stb_benjamini_hochberg(int rank, int number_of_comparisons, double FDR);
 
@@ -759,13 +783,42 @@ STB_EXTERN double stb_sidak(double p, int number_of_comparisons);
  */
 STB_EXTERN double stb_bonferroni(double p, int number_of_comparisons);
 
-/* Apply Benjamini-Hochberg FDR correction to an array of p-values and return adjusted p-values.
- * p_values: array of p-values to adjust
- * n: number of p-values
- * adjusted_p: output array for adjusted p-values (must be pre-allocated)
- * FDR: false discovery rate (typically 0.05 or 0.1)
+/* Apply Benjamini-Hochberg FDR correction to array of p-values
  * 
- * The function sorts p-values, applies BH correction, and returns adjusted p-values in original order.
+ * Purpose: Adjusts an entire array of p-values using the Benjamini-Hochberg 
+ *          procedure, returning adjusted p-values in original order
+ * 
+ * Statistical method: Benjamini-Hochberg FDR correction (1995)
+ * Algorithm: Sorts p-values, computes adjusted p-values as:
+ *            adjusted_p[i] = p[i] × (m / rank[i])
+ *            Enforces monotonicity (adjusted values increase with rank)
+ * 
+ * Inputs:
+ *   p_values   - array of original p-values (not modified)
+ *   n          - number of p-values in array
+ *   adjusted_p - pre-allocated output array for adjusted p-values (must have size n)
+ *   FDR        - desired false discovery rate (unused in calculation, kept for API compatibility)
+ * 
+ * Outputs:
+ *   adjusted_p - adjusted p-values in original input order (compare to α for significance)
+ * 
+ * Usage: After adjustment, compare adjusted_p[i] < α (typically α = 0.05)
+ *        to determine significance for each test
+ * 
+ * Workflow:
+ *   1. Function internally sorts p-values by rank
+ *   2. Computes adjusted values maintaining monotonicity
+ *   3. Returns adjusted p-values mapped back to original input order
+ * 
+ * Applications: Gene expression analysis, metabolomics, multiple comparisons
+ * Advantage: More convenient than stb_benjamini_hochberg() for array operations
+ * 
+ * Note: Output array must be pre-allocated with size n
+ *       Adjusted p-values may exceed 1.0 and are capped at 1.0
+ *       Original p_values array is not modified
+ * 
+ * Reference: Benjamini, Y., & Hochberg, Y. (1995). Controlling the false 
+ *            discovery rate: a practical and powerful approach to multiple testing.
  */
 STB_EXTERN void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double FDR);
 
@@ -1026,137 +1079,525 @@ STB_EXTERN void stb_ksample_anderson_darling(double *data, int n, int *groups, i
  */
 STB_EXTERN void stb_quartiles(double *data, int n, double *min, double *q1, double *median, double *q3, double *max);
 
-/* Free a histogram */
+/* Free histogram memory
+ * 
+ * Purpose: Deallocates memory for histogram structure
+ * 
+ * Inputs:
+ *   hist - pointer to histogram structure to free
+ * 
+ * Note: Always call after finishing with histogram to prevent memory leaks
+ */
 STB_EXTERN void stb_free_histogram(struct stb_hist *hist);
 
-/* Keeps a score histogram, in which scores are counted into bins 0 <= x < 1, bin_width can be
- * a desired bin_width, or to calculate bin width using Freedman–Diaconis rule or -2 to calculate bin width using Rice rule
- * for this the amount of data points (n) should be > 3. To just initialize an empty histogram use n = 0
- * AND provide umin, umax and bin_width!
+/* Create a histogram from data
+ * 
+ * Purpose: Constructs a frequency histogram for numerical data
+ *          Supports automatic bin width calculation or manual specification
+ * 
+ * Inputs:
+ *   data      - array of numerical values (or NULL to initialize empty histogram)
+ *   n         - number of elements (use 0 for empty histogram)
+ *   bin_width - bin width for histogram, or:
+ *               -1 for Freedman-Diaconis rule: 2×IQR×n^(-1/3)
+ *               -2 for Rice rule: n^(1/3)
+ *   umin      - minimum value for histogram range (required if n=0)
+ *   umax      - maximum value for histogram range (required if n=0)
+ * 
+ * Returns: Pointer to stb_hist structure containing histogram
+ *          Must be freed with stb_free_histogram() after use
+ * 
+ * Note: For automatic bin width (n > 3 required):
+ *       Freedman-Diaconis is more robust to outliers
+ *       Rice rule works well for normally distributed data
+ * 
+ * Usage: Create empty histogram with n=0 and add data with stb_histogram_add()
+ *        Or create and populate in one call with n > 0
  */
 STB_EXTERN struct stb_hist *stb_histogram(double *data, int n, double bin_width, double umin, double umax);
 
-// print the histogram
+/* Print histogram to standard output
+ * 
+ * Purpose: Displays histogram in text format for visualization
+ * 
+ * Inputs:
+ *   hist - pointer to histogram structure (from stb_histogram)
+ * 
+ * Output: Prints histogram bins and counts to stdout
+ */
 STB_EXTERN void stb_print_histogram(struct stb_hist *hist);
 
-// add some data to the histogram previously made using stb_histogram
+/* Add data to an existing histogram
+ * 
+ * Purpose: Updates histogram with new data points
+ *          Useful for incremental histogram construction
+ * 
+ * Inputs:
+ *   data - array of numerical values to add
+ *   n    - number of elements to add
+ *   hist - pointer to existing histogram structure
+ * 
+ * Note: Histogram bin structure remains unchanged;
+ *       values outside [min, max] are ignored
+ */
 STB_EXTERN void stb_histogram_add(double *data, int n, struct stb_hist *hist);
 
-/* Calculate the factorial */
+/* Calculate factorial n!
+ * 
+ * Purpose: Computes the factorial of a non-negative integer
+ *          n! = n × (n-1) × (n-2) × ... × 2 × 1
+ * 
+ * Inputs:
+ *   n - non-negative integer
+ * 
+ * Returns: n! as a double
+ * 
+ * Note: Returns exact values for small n
+ *       For large n, may lose precision due to floating point limits
+ *       Consider stb_log_factorial() for large values
+ *       0! = 1 by definition
+ */
 STB_EXTERN double stb_factorial(int n);
 
-/* Calculate the factorial */
+/* Calculate logarithm of factorial log(n!)
+ * 
+ * Purpose: Computes ln(n!) using lookup table and approximation
+ *          Avoids overflow for large factorials
+ * 
+ * Inputs:
+ *   n - non-negative integer
+ * 
+ * Returns: ln(n!) as a double
+ * 
+ * Method: Uses lookup table for small n, Stirling's approximation for large n
+ *         More numerically stable than log(stb_factorial(n))
+ * 
+ * Applications: Combinatorics, probability calculations, statistical tests
+ *               Useful for binomial and hypergeometric distributions
+ */
 STB_EXTERN double stb_log_factorial(int n);
 
-/* Compute (numerical stable) sum of the data using the Neumaier summation algorithm */
+/* Numerically stable summation using Neumaier algorithm
+ * 
+ * Purpose: Computes sum of array elements with reduced floating point error
+ * 
+ * Algorithm: Neumaier's improvement (1974) to Kahan summation
+ *            Compensates for floating point rounding errors
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements
+ * 
+ * Returns: Sum of all elements with improved numerical accuracy
+ * 
+ * Note: More accurate than naive summation for large arrays or values
+ *       with very different magnitudes
+ *       Minimal performance overhead compared to naive sum
+ */
 STB_EXTERN double stb_sum(double *data, int n);
 
-/* Returns Spearman's Rank correlation of two vectors x and y, each of size n */
+/* Spearman's rank correlation coefficient
+ * 
+ * Purpose: Measures monotonic relationship between two variables
+ *          Non-parametric alternative to Pearson correlation
+ * 
+ * Statistical measure: Spearman's ρ (rho), Spearman (1904)
+ * Range: -1 (perfect negative monotonic) to +1 (perfect positive monotonic)
+ * 
+ * Inputs:
+ *   x - array of first variable values
+ *   y - array of second variable values
+ *   n - number of paired observations
+ * 
+ * Returns: Spearman's rank correlation coefficient (ρ)
+ * 
+ * Interpretation:
+ *   |ρ| near 1: Strong monotonic relationship
+ *   ρ near 0: No monotonic relationship
+ *   ρ > 0: Variables increase together
+ *   ρ < 0: One increases as other decreases
+ * 
+ * Advantages: Robust to outliers, works with ordinal data,
+ *             detects non-linear monotonic relationships
+ * 
+ * Applications: Bioinformatics (gene expression correlation),
+ *               when data violates Pearson assumptions
+ */
 STB_EXTERN double stb_spearman(double *x, double *y, int n);
 
-/* Returns Kendall's Rank correlation and the probability of two vectors x and y, each of size n */
+/* Kendall's rank correlation coefficient (tau)
+ * 
+ * Purpose: Measures ordinal association between two variables
+ *          Alternative to Spearman, more robust for small samples
+ * 
+ * Statistical measure: Kendall's τ (tau), Kendall (1938)
+ * Range: -1 (perfect disagreement) to +1 (perfect agreement)
+ * 
+ * Inputs:
+ *   x - array of first variable values
+ *   y - array of second variable values
+ *   n - number of paired observations
+ * 
+ * Outputs:
+ *   tau  - Kendall's tau correlation coefficient
+ *   z    - z-score for significance test
+ *   prob - two-tailed p-value
+ * 
+ * Returns: Error code (0 for success)
+ * 
+ * Interpretation:
+ *   τ = (C - D) / (C + D) where C = concordant pairs, D = discordant pairs
+ *   |τ| near 1: Strong ordinal association
+ *   τ near 0: No association
+ * 
+ * Note: More conservative than Spearman, better for small samples
+ *       Has direct probabilistic interpretation
+ * 
+ * Applications: Small sample sizes, ordinal data, tied ranks
+ */
 STB_EXTERN double stb_kendall(double *x, double *y, int n, double *tau, double *z, double *prob);
 
-// PDF
+/* Gumbel distribution probability density function (PDF)
+ * 
+ * Purpose: Calculates the probability density at x for Gumbel distribution
+ * 
+ * Distribution: Gumbel (Type-I extreme value distribution)
+ * PDF: f(x) = (1/σ) × exp(-(z + exp(-z))) where z = (x-μ)/σ
+ * 
+ * Inputs:
+ *   x   - value at which to evaluate PDF
+ *   mu  - location parameter (mode of distribution)
+ *   sig - scale parameter (σ > 0)
+ * 
+ * Outputs:
+ *   p - probability density at x
+ * 
+ * Applications: Extreme value theory, modeling maxima,
+ *               flood frequency analysis, reliability engineering
+ */
 STB_EXTERN void stb_pdf_gumbel(double x, double mu, double sig, double *p);
 
-// CDF
+/* Gumbel distribution cumulative distribution function (CDF)
+ * 
+ * Purpose: Calculates cumulative probability P(X ≤ x) for Gumbel distribution
+ * 
+ * Distribution: Gumbel (Type-I extreme value distribution)
+ * CDF: F(x) = exp(-exp(-(x-μ)/σ))
+ * 
+ * Inputs:
+ *   x   - value at which to evaluate CDF
+ *   mu  - location parameter (mode of distribution)
+ *   sig - scale parameter (σ > 0)
+ * 
+ * Outputs:
+ *   p - cumulative probability P(X ≤ x)
+ * 
+ * Applications: Calculating probability of extreme events,
+ *               return periods in hydrology
+ */
 STB_EXTERN void stb_cdf_gumbel(double x, double mu, double sig, double *p);
 
-// inverse CDF a.k.a quantile function
+/* Gumbel distribution inverse CDF (quantile function)
+ * 
+ * Purpose: Calculates the value x for which P(X ≤ x) = p
+ * 
+ * Distribution: Gumbel (Type-I extreme value distribution)
+ * Inverse CDF: Q(p) = μ - σ × ln(-ln(p))
+ * 
+ * Inputs:
+ *   mu  - location parameter (mode of distribution)
+ *   sig - scale parameter (σ > 0)
+ *   p   - cumulative probability (0 < p < 1)
+ * 
+ * Returns: x such that P(X ≤ x) = p
+ * 
+ * Applications: Calculating return levels for given return periods,
+ *               generating Gumbel random variates
+ */
 STB_EXTERN double stb_icdf_gumbel(double mu, double sig, double p);
 
-/* Fit the Gumbel distribution using maximum likelihood estimation (MLE) */
+/* Estimate Gumbel distribution parameters using maximum likelihood
+ * 
+ * Purpose: Fits Gumbel distribution to data using MLE
+ * 
+ * Method: Maximum likelihood estimation for Gumbel parameters
+ * 
+ * Inputs:
+ *   data - array of observed values (typically maxima or extremes)
+ *   n    - number of observations
+ * 
+ * Outputs:
+ *   mu  - estimated location parameter
+ *   sig - estimated scale parameter
+ * 
+ * Applications: Extreme value analysis, fitting distribution to
+ *               annual maximum flood levels, wind speeds, etc.
+ * 
+ * Note: Data should represent extreme values (maxima) from samples
+ */
 STB_EXTERN void stb_est_gumbel(double *data, int n, double *mu, double *sig);
 
-/* Calculate the linear regression
- * y = ax + b
- *
- * x,y  = arrays of data
- * n = number of data points
- * a = output slope
- * b = output intercept
- * r = output correlation coefficient (can be NULL if you don't want it)
+/* Linear regression (least squares fit)
+ * 
+ * Purpose: Fits a straight line y = a×x + b to data using ordinary least squares
+ * 
+ * Statistical method: Linear regression via least squares (Legendre, 1805; Gauss, 1809)
+ * Model: y = a×x + b where a is slope, b is intercept
+ * Minimizes: Sum of squared residuals Σ(yᵢ - ŷᵢ)²
+ * 
+ * Inputs:
+ *   x - array of independent variable values (predictor)
+ *   y - array of dependent variable values (response)
+ *   n - number of data points (must be ≥ 2)
+ * 
+ * Outputs:
+ *   a - slope of fitted line (coefficient of x)
+ *   b - y-intercept of fitted line (constant term)
+ *   r - Pearson correlation coefficient (optional, can be NULL)
+ *       |r| = 1 indicates perfect linear relationship
+ *       r = 0 indicates no linear relationship
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Applications: Calibration curves, trend analysis, predictive modeling
+ * Assumptions: Linear relationship, homoscedasticity, independent errors
+ * 
+ * Note: Function computes exact solution using normal equations
+ *       For multiple predictors, use stb_multi_linear_regression()
+ *       Returns error if n < 2 or variance of x is zero
  */
 STB_EXTERN int stb_linfit(const double *x, const double *y, int n, double *a, double *b, double *r);
 
-/* Calculate the exponential regression
- * Note: The data is tranformed before fitting it, so we might not get the best fit
- * y = a * e^(b * x)
- *
- * x,y  = arrays of data
- * n = number of data points
- * a = output base
- * b = output exp
- * r = output correlation coefficient (can be NULL if you don't want it)
+/* Exponential regression (exponential curve fitting)
+ * 
+ * Purpose: Fits an exponential growth/decay model y = a × e^(b×x) to data
+ *          Uses logarithmic transformation and linear regression
+ * 
+ * Mathematical model: y = a × e^(b×x)
+ * Method: Linearizes via log transform: ln(y) = ln(a) + b×x
+ *         Applies linear regression on transformed data
+ * 
+ * Inputs:
+ *   x - array of independent variable values
+ *   y - array of dependent variable values (must be positive)
+ *   n - number of data points (must be ≥ 2)
+ * 
+ * Outputs:
+ *   a - base coefficient (y-intercept in original scale)
+ *   b - exponential rate (positive for growth, negative for decay)
+ *   r - correlation coefficient for linearized fit (optional, can be NULL)
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Applications: Population growth, radioactive decay, compound interest,
+ *               bacterial growth, drug elimination kinetics
+ * 
+ * Limitations: Data transformation approach may not yield optimal fit
+ *              Assumes log-normal error structure
+ *              All y values must be positive (negative/zero values cause error)
+ * 
+ * Note: For b > 0: exponential growth; b < 0: exponential decay
+ *       Consider non-linear least squares for heteroscedastic data
  */
 STB_EXTERN int stb_expfit(const double *x, const double *y, int n, double *a, double *b, double *r);
 
-/* Calculate the polynomial regression
- * y = retval[2]* x^2 + retval[1]* x^1 + retval[0]* x^0
- *
- * x = x-axis values
- * y = y-axis values
- * N = number of data-points
- * n = degree of polynomial
+/* Polynomial regression (polynomial curve fitting)
+ * 
+ * Purpose: Fits a polynomial of degree n to data using least squares
+ *          Returns coefficients for y = c[n]×x^n + c[n-1]×x^(n-1) + ... + c[1]×x + c[0]
+ * 
+ * Mathematical model: y = Σ(cᵢ × x^i) for i = 0 to n
+ * Method: Solves normal equations using matrix operations
+ *         Constructs and solves Vandermonde system
+ * 
+ * Inputs:
+ *   x - array of independent variable values
+ *   y - array of dependent variable values
+ *   N - number of data points (must be > n)
+ *   n - degree of polynomial (n=1 is linear, n=2 is quadratic, etc.)
+ * 
+ * Returns: Pointer to dynamically allocated array of coefficients [c[0], c[1], ..., c[n]]
+ *          Array has size (n+1) - caller must free() after use
+ *          Returns NULL on error
+ * 
+ * Coefficient order: retval[0] = constant term (x^0)
+ *                    retval[1] = linear coefficient (x^1)
+ *                    retval[2] = quadratic coefficient (x^2)
+ *                    ...
+ *                    retval[n] = highest degree coefficient (x^n)
+ * 
+ * Applications: Calibration curves, trend fitting, response surface modeling
+ * 
+ * Warning: High-degree polynomials (n > 5) may cause numerical instability
+ *          Can produce Runge's phenomenon (oscillation) with high degrees
+ *          Overfitting risk increases with polynomial degree
+ * 
+ * Usage example:
+ *   double *fit = stb_polyfit(x, y, 10, 2);  // Fit quadratic (degree 2)
+ *   // y_predicted = fit[0] + fit[1]*x + fit[2]*x²
+ *   free(fit);
+ * 
+ * Note: For n=1, prefer stb_linfit() for better numerical stability
+ *       Must have N > n (more data points than polynomial degree)
  */
 STB_EXTERN double *stb_polyfit(const double *x, const double *y, int N, int n);
 
-/* Calculate the power regression
- * Note: The data is tranformed before fitting it, so we might not get the best fit
- * y = a * x^b
- *
- * x,y  = arrays of data
- * n = number of data points
- * a = output base
- * b = output exponent
- * r = output correlation coefficient (can be NULL if you don't want it)
+/* Power law regression (power curve fitting)
+ * 
+ * Purpose: Fits a power law model y = a × x^b to data
+ *          Uses logarithmic transformation and linear regression
+ * 
+ * Mathematical model: y = a × x^b
+ * Method: Linearizes via log-log transform: ln(y) = ln(a) + b×ln(x)
+ *         Applies linear regression on log-transformed data
+ * 
+ * Inputs:
+ *   x - array of independent variable values (must be positive)
+ *   y - array of dependent variable values (must be positive)
+ *   n - number of data points (must be ≥ 2)
+ * 
+ * Outputs:
+ *   a - scaling coefficient (y-intercept in original scale)
+ *   b - power law exponent (elasticity, scaling exponent)
+ *   r - correlation coefficient for linearized fit (optional, can be NULL)
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Applications: Allometric scaling, physics laws, fractal analysis,
+ *               metabolic rates, city populations, frequency distributions
+ * 
+ * Interpretation of b:
+ *   b = 1: Linear relationship
+ *   b > 1: Superlinear (accelerating) growth
+ *   0 < b < 1: Sublinear (decelerating) growth
+ *   b < 0: Inverse relationship (hyperbolic decay)
+ * 
+ * Limitations: Data transformation may not yield optimal fit
+ *              Assumes log-log error structure
+ *              All x and y values must be positive
+ * 
+ * Examples: Kleiber's law (metabolic rate ∝ mass^0.75)
+ *           Surface area ∝ volume^(2/3)
+ * 
+ * Note: Consider non-linear least squares for better fit quality
  */
 STB_EXTERN int stb_powfit(const double *x, const double *y, int n, double *a, double *b, double *r);
 
-/* Lagrange interpolation 
- * x = x values
- * y = y values
- * n = number of data points
- * xp = value of x to interpolate y -> f(xp) = sum (the interpolated value)
+/* Lagrange polynomial interpolation
+ * 
+ * Purpose: Estimates value at point xp using Lagrange interpolating polynomial
+ *          Passes exactly through all given data points
+ * 
+ * Mathematical method: Lagrange interpolation (1795)
+ * Formula: P(x) = Σ yᵢ × Lᵢ(x) where Lᵢ(x) = Π[(x - xⱼ)/(xᵢ - xⱼ)] for j ≠ i
+ * 
+ * Inputs:
+ *   x  - array of x-coordinates of known points (must be distinct)
+ *   y  - array of y-coordinates of known points
+ *   n  - number of data points
+ *   xp - x-coordinate at which to interpolate (evaluation point)
+ * 
+ * Returns: Interpolated value f(xp) = P(xp)
+ * 
+ * Properties: Polynomial of degree (n-1) passing through all n points
+ *             Unique polynomial satisfying the interpolation conditions
+ * 
+ * Applications: Numerical interpolation, curve fitting through specific points,
+ *               polynomial approximation of functions
+ * 
+ * Advantages: Simple to implement, passes exactly through data points
+ *             Works for any number of points
+ * 
+ * Disadvantages: Prone to Runge's phenomenon with many points (oscillation)
+ *                Computationally expensive for large n (O(n²))
+ *                Poor extrapolation properties outside data range
+ * 
+ * Warning: x values must be distinct (no duplicates)
+ *          Interpolation is more reliable than extrapolation
+ *          Use with caution for n > 10 (oscillation risk)
+ * 
+ * Note: For uniformly spaced points, consider Newton's divided differences
+ *       For large datasets, consider spline interpolation instead
  */
 STB_EXTERN double stb_lagrange(double *x, double *y, int n, double xp);
 
 typedef double (*stb_function)(double);
 
-/* This function returns the area under a curve of a given function f
- * a = x[0]
- * b = x[n]
- * n = number of intervals
- * f = the curve function that is used to calculate y (the height of each slice)
+/* Trapezoidal rule for numerical integration
+ * 
+ * Purpose: Computes definite integral ∫ᵇₐ f(x)dx using composite trapezoidal rule
+ * 
+ * Mathematical method: Trapezoidal rule (Newton-Cotes quadrature)
+ * Formula: ∫ᵇₐ f(x)dx ≈ (h/2) × [f(a) + 2∑f(xᵢ) + f(b)]
+ *          where h = (b-a)/n and xᵢ are equally spaced points
+ * 
+ * Inputs:
+ *   a - lower limit of integration
+ *   b - upper limit of integration
+ *   n - number of intervals (trapezoids)
+ *   f - pointer to function to integrate (must accept double, return double)
+ * 
+ * Returns: Approximate value of the definite integral
+ * 
+ * Accuracy: Error ~ O(h²) = O((b-a)²/n²) for smooth functions
+ *           More intervals (larger n) give better accuracy
+ * 
+ * Applications: Numerical integration, area under curve, probability calculations,
+ *               physics problems (work, center of mass, etc.)
+ * 
+ * Usage: Faster but less accurate than adaptive methods
+ *        For automatic convergence, use stb_trapezoidal() instead
+ * 
+ * Example:
+ *   double my_func(double x) { return x * x; }
+ *   double area = stb_trap(0.0, 1.0, 100, my_func);  // ≈ 0.333...
+ * 
+ * Note: Assumes function f is continuous on [a, b]
+ *       For oscillatory functions, may need large n
+ *       For adaptive integration, see stb_trapezoidal()
  */
 STB_EXTERN double stb_trap(double a, double b, int n, stb_function f);
 
-/* This function perform integration by trapezoidal rule until converged to the given accuracy
- * or till LIMIT iterations has been reached and returns the area under a curve of a given function f
- * (Requires: stb_trap)
- * a = x[0]
- * b = x[n]
- * n = current number of intervals
- * accuracy = the desired accuracy
- * f = the curve function that is used to calculate y (the height of each slice)
- *
- * Example:
- * double func1(double x)
- * {
- *     return (1.0 / (1.0 + stb_sqr(x)));
- * }
+/* Adaptive trapezoidal integration with convergence
  * 
- * int main()
- * {
- *     int intervals = 10;
- *     double accuracy = 0.000001;
- *     double x0 = 1;
- *     double xn = 5;
- *     area = stb_trapezoidal(x0, xn, &intervals, accuracy, func1);
- *     printf("Area = %lf (required: %i intervals)\n", area, intervals);
- *     return 0;
- * }
+ * Purpose: Performs numerical integration using adaptive trapezoidal rule
+ *          Automatically refines until desired accuracy is achieved
+ * 
+ * Mathematical method: Iterative trapezoidal rule with Richardson extrapolation
+ * Algorithm: Doubles intervals each iteration until |new_area - old_area| < accuracy
+ *            or maximum iterations reached
+ * 
+ * Inputs:
+ *   a        - lower limit of integration
+ *   b        - upper limit of integration  
+ *   n        - pointer to initial number of intervals (updated with final count)
+ *   accuracy - desired absolute accuracy for convergence
+ *   f        - pointer to function to integrate
+ * 
+ * Outputs:
+ *   n - updated with actual number of intervals used
+ * 
+ * Returns: Approximate value of definite integral ∫ᵇₐ f(x)dx
+ * 
+ * Convergence: Iteratively increases intervals until successive approximations
+ *              differ by less than accuracy parameter
+ *              Prints warning if maximum iterations reached without convergence
+ * 
+ * Applications: Numerical integration when accuracy requirements are known,
+ *               statistical distributions, probability calculations
+ * 
+ * Advantages: Automatic refinement, guaranteed accuracy (if converged)
+ * Disadvantages: May be slow for difficult functions, no error estimate
+ * 
+ * Example:
+ *   double func1(double x) { return 1.0 / (1.0 + x*x); }
+ *   int intervals = 10;
+ *   double area = stb_trapezoidal(1.0, 5.0, &intervals, 1e-6, func1);
+ *   printf("Area = %lf (required: %i intervals)\n", area, intervals);
+ * 
+ * Note: Uses stb_trap() internally for each iteration
+ *       For smooth functions, converges quickly (doubling rule efficient)
+ *       For discontinuous functions, may fail to converge
  */
 STB_EXTERN double stb_trapezoidal(double a, double b, int *n, double accuracy, stb_function f);
 
@@ -1194,58 +1635,487 @@ static inline double stb_sqr(double x)
 	return x * x;
 }
 
-/* Used for the initialization of xoshiro512**, but could also be used as a stand alone PRNG */
+/* SplitMix64 pseudo-random number generator
+ * 
+ * Purpose: Fast 64-bit PRNG primarily used for seeding other generators
+ *          Can also be used standalone for non-cryptographic random numbers
+ * 
+ * Algorithm: SplitMix64 by Steele et al. (2014)
+ * Properties: Period = 2^64, very fast, good statistical quality
+ * 
+ * Input:
+ *   seed - 64-bit state/seed (updated by reference in internal use)
+ * 
+ * Returns: 64-bit pseudo-random integer
+ * 
+ * Applications: Seeding xoshiro/xoroshiro generators, hash table randomization
+ * 
+ * Note: Designed for initialization, not main PRNG
+ *       Used internally by stb_sxoshiro512() for state initialization
+ *       Not suitable for cryptographic purposes
+ * 
+ * Reference: Steele Jr, G. L., Lea, D., & Flood, C. H. (2014).
+ *            Fast splittable pseudorandom number generators.
+ */
 STB_EXTERN uint64_t stb_splitmix64(uint64_t seed);
 
-/* Seed xoshiro512** */
+/* Initialize xoshiro512** state
+ * 
+ * Purpose: Seeds the xoshiro512** generator with proper state initialization
+ * 
+ * Input:
+ *   seed - 64-bit seed value
+ * 
+ * Returns: Pointer to dynamically allocated 512-bit state array (8 × uint64_t)
+ *          Caller must free() after use
+ * 
+ * Usage: Call once to initialize, then pass state to stb_xoshiro512()
+ * 
+ * Note: Uses SplitMix64 internally to generate well-distributed initial state
+ *       Ensures non-zero state (required for xoshiro512**)
+ */
 STB_EXTERN uint64_t *stb_sxoshiro512(uint64_t seed);
 
-/* xoshiro512** PRNG with 64-bit output and 512-bit state*/
+/* xoshiro512** pseudo-random number generator
+ * 
+ * Purpose: High-quality, fast 64-bit PRNG with very long period
+ * 
+ * Algorithm: xoshiro512** by Blackman & Vigna (2018)
+ * Properties: Period = 2^512 - 1, excellent statistical quality
+ *             Passes BigCrush test suite, 64-bit output
+ * 
+ * Input:
+ *   s - pointer to 512-bit state (8 × uint64_t, modified in-place)
+ * 
+ * Returns: 64-bit pseudo-random integer uniformly distributed in [0, 2^64-1]
+ * 
+ * Applications: Simulations, Monte Carlo methods, gaming, general-purpose PRNG
+ * 
+ * Advantages: Excellent quality, very long period, fast generation
+ *             Jump function available for parallel streams
+ * 
+ * Usage: Initialize state with stb_sxoshiro512() before first use
+ *        State is modified with each call
+ * 
+ * Note: Not cryptographically secure
+ *       For bounded integers, use stb_xoshiro512_bounded()
+ * 
+ * Reference: Blackman, D., & Vigna, S. (2018). Scrambled linear pseudorandom
+ *            number generators. arXiv:1805.01407
+ */
 STB_EXTERN uint64_t stb_xoshiro512(uint64_t *s);
 
-/* stb_xoshiro512_bounded returns a uniformly distributed interger, r, in the range [0, n). */
+/* xoshiro512** bounded uniform integer
+ * 
+ * Purpose: Generates unbiased random integer in range [0, n)
+ * 
+ * Algorithm: Lemire's nearly divisionless method (2019) for unbiased sampling
+ *            Rejection sampling to eliminate modulo bias
+ * 
+ * Inputs:
+ *   s - pointer to xoshiro512 state (modified in-place)
+ *   n - upper bound (exclusive), must be > 0
+ * 
+ * Returns: Random integer uniformly distributed in [0, n-1]
+ * 
+ * Applications: Array indexing, random selection, discrete sampling
+ * 
+ * Advantage: No modulo bias (unlike naive mod operation)
+ *            Fast for most values of n
+ * 
+ * Note: For n = 0, returns full 64-bit random value
+ *       Uses rejection for bias elimination (rare retries)
+ * 
+ * Reference: Lemire, D. (2019). Fast random integer generation in an interval.
+ *            ACM Transactions on Modeling and Computer Simulation, 29(1), 1-12.
+ */
 STB_EXTERN uint64_t stb_xoshiro512_bounded(uint64_t *s, uint64_t n);
 
-/* PCG-XSH-RR PRNG with 64-bit state and 32-bit output */
-STB_EXTERN uint32_t stb_pcg32(uint64_t *s);
-
-/* Seed the pcg32 PRNG */
+/* Initialize PCG32 state
+ * 
+ * Purpose: Seeds the PCG32 generator
+ * 
+ * Input:
+ *   seed - 64-bit seed value
+ * 
+ * Returns: Initial 64-bit state for PCG32 generator
+ * 
+ * Usage: state = stb_spcg32(seed);
+ *        value = stb_pcg32(&state);
+ */
 STB_EXTERN uint64_t stb_spcg32(uint64_t seed);
 
-/* stb_pcg32_bounded returns a uniformly distributed integer, r, in the range [0, n). */
+/* PCG-XSH-RR pseudo-random number generator
+ * 
+ * Purpose: Fast, high-quality 32-bit PRNG with 64-bit state
+ * 
+ * Algorithm: PCG-XSH-RR variant by O'Neill (2014)
+ *            Permuted Congruential Generator with XOR-shift and random rotation
+ * Properties: Period = 2^64, excellent statistical quality, 32-bit output
+ * 
+ * Input:
+ *   s - pointer to 64-bit state (modified in-place)
+ * 
+ * Returns: 32-bit pseudo-random integer uniformly distributed in [0, 2^32-1]
+ * 
+ * Applications: General-purpose PRNG, simulations, gaming, sampling
+ * 
+ * Advantages: Excellent statistical quality (passes TestU01 BigCrush)
+ *             Small state size (64 bits), very fast
+ *             Better quality than LCG, Xorshift, MT19937 in many tests
+ * 
+ * Usage: Initialize state with stb_spcg32() before first use
+ *        Alternatively initialize directly: uint64_t state = initial_seed;
+ * 
+ * Note: Not cryptographically secure
+ *       For bounded integers, use stb_pcg32_bounded()
+ *       For floating-point [0,1), use stb_pcg32_uniform()
+ * 
+ * Reference: O'Neill, M. E. (2014). PCG: A family of simple fast space-efficient
+ *            statistically good algorithms for random number generation.
+ *            Harvey Mudd College Technical Report HMC-CS-2014-0905.
+ */
+STB_EXTERN uint32_t stb_pcg32(uint64_t *s);
+
+/* PCG32 bounded uniform integer
+ * 
+ * Purpose: Generates unbiased random integer in range [0, n)
+ * 
+ * Algorithm: Lemire's nearly divisionless method for unbiased sampling
+ *            Eliminates modulo bias via rejection sampling
+ * 
+ * Inputs:
+ *   s - pointer to PCG32 state (modified in-place)
+ *   n - upper bound (exclusive), must be > 0
+ * 
+ * Returns: Random integer uniformly distributed in [0, n-1]
+ * 
+ * Applications: Dice rolls, card shuffling, random selection, array indexing
+ * 
+ * Advantage: Unbiased (no modulo bias)
+ *            Efficient for most n values
+ * 
+ * Note: For n = 0, returns full 32-bit random value
+ *       Rare retries ensure perfect uniformity
+ */
 STB_EXTERN uint32_t stb_pcg32_bounded(uint64_t *s, uint32_t n);
 
+/* Uniform random number in [0, 1)
+ * 
+ * Purpose: Generates random floating-point number uniformly distributed in [0, 1)
+ * 
+ * Method: Converts 32-bit PCG output to double precision float
+ *         Uses 52-bit mantissa for maximum precision
+ * 
+ * Input:
+ *   seed - pointer to PCG32 state (modified in-place)
+ * 
+ * Returns: Double-precision float uniformly distributed in [0.0, 1.0)
+ * 
+ * Applications: Probability simulations, accept-reject sampling, random decisions
+ * 
+ * Precision: 2^-52 ≈ 2.22e-16 (double precision)
+ * 
+ * Usage: Foundation for other distributions (exponential, normal, etc.)
+ *        p = stb_pcg32_uniform(&seed);
+ *        if (p < 0.5) { ... }  // happens 50% of time
+ * 
+ * Note: Never returns exactly 1.0 (returns values in [0, 1))
+ *       For integers in range, use stb_pcg32_bounded() instead
+ */
 STB_EXTERN double stb_pcg32_uniform(uint64_t *seed);
 
-// Gaussian (normal) random sample with mean 0 and standard deviation 1 from
-// Knuth and Marsaglia and Bray, ``A Convenient Method for Generating Normal Variables''
+/* Standard normal (Gaussian) random variate
+ * 
+ * Purpose: Generates random sample from standard normal distribution N(0, 1)
+ * 
+ * Statistical distribution: Normal/Gaussian with μ = 0, σ = 1
+ * Algorithm: Marsaglia polar method (Knuth, 1997)
+ *            Efficient rejection-based Box-Muller transformation
+ * 
+ * Input:
+ *   seed - pointer to PCG32 state (modified in-place)
+ * 
+ * Returns: Random value from standard normal distribution
+ *          Mean = 0, standard deviation = 1
+ * 
+ * Applications: Simulating normally distributed data, Monte Carlo methods,
+ *               generating random noise, statistical simulations
+ * 
+ * Properties: Symmetric around 0, ~68% of values in [-1, 1]
+ *             ~95% in [-2, 2], ~99.7% in [-3, 3]
+ * 
+ * Usage: For custom mean/std, use stb_pcg32_gauss_msd()
+ *        For non-negative only, consider Chi-square or Gamma
+ * 
+ * Note: Uses rejection sampling (efficient, ~1.27 uniforms per output)
+ *       Suitable for general statistical work, not cryptographic
+ * 
+ * Reference: Marsaglia, G., & Bray, T. A. (1964). A convenient method for
+ *            generating normal variables. SIAM Review, 6(3), 260-264.
+ */
 STB_EXTERN double stb_pcg32_gauss(uint64_t *seed);
 
-// Gaussian (normal) random sample with specified mean and standard deviation
+/* Normal (Gaussian) random variate with specified parameters
+ * 
+ * Purpose: Generates random sample from normal distribution N(μ, σ²)
+ * 
+ * Statistical distribution: Normal/Gaussian with custom mean and standard deviation
+ * Method: Transforms standard normal via: X = μ + σ×Z where Z ~ N(0,1)
+ * 
+ * Inputs:
+ *   seed  - pointer to PCG32 state (modified in-place)
+ *   mean  - desired mean (μ, location parameter)
+ *   stdev - desired standard deviation (σ > 0, scale parameter)
+ * 
+ * Returns: Random value from N(mean, stdev²) distribution
+ * 
+ * Applications: Modeling measurement errors, natural phenomena,
+ *               adding noise to signals, financial modeling
+ * 
+ * Usage example:
+ *   double temp = stb_pcg32_gauss_msd(&seed, 20.0, 2.5);  // Mean=20°C, SD=2.5°C
+ * 
+ * Note: For mean=0, stdev=1, equivalent to stb_pcg32_gauss()
+ */
 STB_EXTERN double stb_pcg32_gauss_msd(uint64_t *seed, double mean, double stdev);
 
-// Implementation based on "A Simple Method for Generating Gamma Variables"
-// by George Marsaglia and Wai Wan Tsang.  ACM Transactions on Mathematical Software
-// Vol 26, No 3, September 2000, pages 363-372.
-// shape (alpha)  and scale (lambda)
+/* Gamma distribution random variate
+ * 
+ * Purpose: Generates random sample from Gamma distribution
+ * 
+ * Statistical distribution: Gamma(α, λ) where α=shape, λ=scale
+ * PDF: f(x) = (1/(Γ(α)×λ^α)) × x^(α-1) × e^(-x/λ) for x > 0
+ * Algorithm: Marsaglia-Tsang method (2000) for shape > 1
+ *            For shape < 1, uses transformation method
+ * 
+ * Inputs:
+ *   seed  - pointer to PCG32 state (modified in-place)
+ *   shape - shape parameter α (α > 0, also called k)
+ *   scale - scale parameter λ (λ > 0, also called θ)
+ * 
+ * Returns: Random value from Gamma(shape, scale) distribution (x ≥ 0)
+ * 
+ * Properties: Mean = α×λ, Variance = α×λ²
+ *             For α=1: exponential distribution
+ *             For α=n/2, λ=2: Chi-square with n degrees of freedom
+ * 
+ * Applications: Modeling waiting times, rainfall, insurance claims,
+ *               Bayesian statistics (conjugate prior), queuing theory
+ * 
+ * Special cases:
+ *   Gamma(1, λ) = Exponential(1/λ)
+ *   Gamma(n/2, 2) = Chi-square(n)
+ *   Gamma(n, 1) = Erlang(n)
+ * 
+ * Note: Some literature uses rate β = 1/λ instead of scale
+ *       Algorithm is efficient for all shape values
+ * 
+ * Reference: Marsaglia, G., & Tsang, W. W. (2000). A simple method for
+ *            generating gamma variables. ACM TOMS, 26(3), 363-372.
+ */
 STB_EXTERN double stb_pcg32_gamma(uint64_t *seed, double shape, double scale);
 
+/* Standard exponential random variate
+ * 
+ * Purpose: Generates random sample from standard exponential distribution (rate=1)
+ * 
+ * Statistical distribution: Exponential with rate λ = 1 (mean = 1)
+ * PDF: f(x) = e^(-x) for x ≥ 0
+ * Method: Inverse transform: X = -ln(U) where U ~ Uniform(0,1)
+ * 
+ * Input:
+ *   seed - pointer to PCG32 state (modified in-place)
+ * 
+ * Returns: Random value from Exponential(1) distribution (x ≥ 0)
+ * 
+ * Properties: Mean = 1, Variance = 1, Memoryless property
+ * 
+ * Applications: Time between Poisson events, component lifetimes,
+ *               radioactive decay, service times in queuing
+ * 
+ * Usage: For custom mean, use stb_pcg32_exponential_m()
+ *        Related to Gamma(1, scale) and geometric distributions
+ * 
+ * Note: Memoryless: P(X > s+t | X > s) = P(X > t)
+ */
 STB_EXTERN double stb_pcg32_exponential(uint64_t *seed);
 
-// exponential random sample with specified mean
+/* Exponential random variate with specified mean
+ * 
+ * Purpose: Generates random sample from exponential distribution with custom mean
+ * 
+ * Statistical distribution: Exponential with specified mean (rate = 1/mean)
+ * PDF: f(x) = (1/mean) × e^(-x/mean) for x ≥ 0
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   mean - desired mean (mean > 0, equals 1/rate)
+ * 
+ * Returns: Random value from Exponential distribution (x ≥ 0)
+ * 
+ * Properties: Mean = mean, Variance = mean²
+ * 
+ * Applications: Time to next event, survival analysis, reliability engineering
+ * 
+ * Usage example:
+ *   double wait_time = stb_pcg32_exponential_m(&seed, 5.0);  // Mean wait = 5 minutes
+ */
 STB_EXTERN double stb_pcg32_exponential_m(uint64_t *seed, double mean);
 
-// Knuth: mean (lambda)
+/* Poisson distribution random variate
+ * 
+ * Purpose: Generates random count from Poisson distribution
+ * 
+ * Statistical distribution: Poisson(λ) where λ is the rate/mean
+ * PMF: P(X=k) = (λ^k × e^(-λ)) / k! for k = 0, 1, 2, ...
+ * Algorithm: Knuth's method for small λ, transformed rejection for large λ
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   mean - rate parameter λ (λ > 0, expected number of events)
+ * 
+ * Returns: Random non-negative integer from Poisson(mean) distribution
+ * 
+ * Properties: Mean = λ, Variance = λ (variance equals mean)
+ *             Discrete distribution on {0, 1, 2, 3, ...}
+ * 
+ * Applications: Modeling rare events, count data, arrivals in queuing,
+ *               photon detection, mutations, web traffic
+ * 
+ * Examples: Number of calls to call center per hour
+ *           Number of mutations in DNA sequence
+ *           Number of particles detected in time interval
+ * 
+ * Note: For large λ (>30), approximately normal: N(λ, λ)
+ *       Related to exponential (time between events)
+ * 
+ * Reference: Knuth, D. E. (1997). The Art of Computer Programming,
+ *            Volume 2: Seminumerical Algorithms (3rd ed.).
+ */
 STB_EXTERN double stb_pcg32_poisson(uint64_t *seed, const double mean);
 
+/* Negative binomial distribution random variate
+ * 
+ * Purpose: Generates random count from negative binomial distribution
+ * 
+ * Statistical distribution: NegBinom(r, p) - number of failures before r successes
+ * Method: Gamma-Poisson mixture (more numerically stable)
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   size - number of successes r (r > 0, dispersion parameter)
+ *   prob - success probability p (0 < p ≤ 1)
+ * 
+ * Returns: Random non-negative integer (number of failures)
+ * 
+ * Properties: Mean = r(1-p)/p, Variance = r(1-p)/p²
+ *             Overdispersed relative to Poisson (variance > mean)
+ * 
+ * Applications: Modeling overdispersed count data, RNA-seq analysis,
+ *               insurance claims, accident counts
+ * 
+ * Note: For large r, approaches Poisson
+ *       Alternative parameterization uses mean: stb_pcg32_nbinom_mu()
+ */
 STB_EXTERN double stb_pcg32_nbinom(uint64_t *seed, double size, double prob);
 
+/* Chi-square distribution random variate
+ * 
+ * Purpose: Generates random sample from Chi-square distribution
+ * 
+ * Statistical distribution: χ²(ν) with ν degrees of freedom
+ * Method: Uses Gamma(ν/2, 2) equivalence
+ * 
+ * Inputs:
+ *   seed               - pointer to PCG32 state (modified in-place)
+ *   degrees_of_freedom - degrees of freedom ν (ν > 0)
+ * 
+ * Returns: Random value from χ²(ν) distribution (x ≥ 0)
+ * 
+ * Properties: Mean = ν, Variance = 2ν
+ *             Sum of ν squared standard normals
+ * 
+ * Applications: Goodness-of-fit tests, variance estimation,
+ *               hypothesis testing, confidence intervals for variance
+ * 
+ * Note: Equivalent to Gamma(ν/2, 2)
+ */
 STB_EXTERN double stb_pcg32_chisquare(uint64_t *seed, double degrees_of_freedom);
 
+/* Inverse gamma distribution random variate
+ * 
+ * Purpose: Generates random sample from inverse gamma distribution
+ * 
+ * Statistical distribution: InvGamma(α, β) where α=shape, β=scale
+ * Method: Reciprocal of Gamma(α, 1/β)
+ * 
+ * Inputs:
+ *   seed  - pointer to PCG32 state (modified in-place)
+ *   shape - shape parameter α (α > 0)
+ *   scale - scale parameter β (β > 0)
+ * 
+ * Returns: Random value from InvGamma(shape, scale) distribution (x > 0)
+ * 
+ * Applications: Bayesian statistics (conjugate prior for variance),
+ *               hierarchical models, scale parameter estimation
+ * 
+ * Note: If X ~ Gamma(α, β), then 1/X ~ InvGamma(α, 1/β)
+ */
 STB_EXTERN double stb_pcg32_invgamma(uint64_t *seed, double shape, double scale);
 
+/* Beta distribution random variate
+ * 
+ * Purpose: Generates random sample from Beta distribution on [0, 1]
+ * 
+ * Statistical distribution: Beta(α, β) where α, β > 0 are shape parameters
+ * Method: Ratio of two Gamma variates
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   a    - first shape parameter α (α > 0)
+ *   b    - second shape parameter β (β > 0)
+ * 
+ * Returns: Random value from Beta(α, β) distribution, 0 ≤ x ≤ 1
+ * 
+ * Properties: Mean = α/(α+β), Variance = αβ/[(α+β)²(α+β+1)]
+ *             Bounded to [0, 1]
+ * 
+ * Shape interpretation:
+ *   α=β=1: Uniform(0,1)
+ *   α=β>1: Symmetric, bell-shaped
+ *   α<β: Skewed toward 0
+ *   α>β: Skewed toward 1
+ * 
+ * Applications: Bayesian inference (conjugate prior for binomial),
+ *               modeling proportions, probabilities, percentages
+ * 
+ * Note: X ~ Beta(α,β) implies 1-X ~ Beta(β,α)
+ */
 STB_EXTERN double stb_pcg32_beta(uint64_t *seed, double a, double b);
 
+/* Negative binomial distribution (mean parameterization)
+ * 
+ * Purpose: Generates negative binomial random variate using mean parameterization
+ * 
+ * Statistical distribution: NegBinom with mean μ and dispersion parameter r
+ * Method: Gamma-Poisson mixture
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   size - dispersion parameter r (r > 0, smaller = more overdispersion)
+ *   mu   - mean parameter μ (μ > 0)
+ * 
+ * Returns: Random non-negative integer
+ * 
+ * Properties: Mean = μ, Variance = μ + μ²/r
+ * 
+ * Applications: RNA-seq differential expression (DESeq2, edgeR),
+ *               overdispersed count data modeling
+ * 
+ * Note: As r→∞, approaches Poisson(μ)
+ *       Common in genomics for modeling read counts
+ */
 STB_EXTERN double stb_pcg32_nbinom_mu(uint64_t *seed, double size, double mu);
 
 /**
