@@ -78,10 +78,16 @@ int parse_args(int argc, char **argv, Config *config) {
     int opt;
     int option_index = 0;
 
-    /* First non-option argument is input file */
+    /* Check for help first */
     if (argc < 2) {
         return -1;
     }
+    
+    if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+        return -1;
+    }
+
+    /* First non-option argument is input file */
     config->input_file = argv[1];
 
     /* Parse options */
