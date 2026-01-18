@@ -422,6 +422,17 @@ typedef unsigned long long _flag_t;
     return P##nexti(table, idx);                                               \
   }
 
+/* String comparison helper function
+ * 
+ * Purpose: Safe string comparison that handles NULL pointers
+ * 
+ * Inputs:
+ *   l - first string to compare
+ *   r - second string to compare
+ * 
+ * Returns: 0 if strings are equal, non-zero otherwise
+ *          Returns 1 if either string is NULL
+ */
 STB_EXTERN int stb_strcmp(char * l, char *r);
 
 /* Example usage
@@ -482,72 +493,332 @@ struct stb_hist {
 	double *count;
 };
 
-/* Given  an  array  of data (length n), this routine  returns  its  mean and sample variance calculated using the Welford’s method. */
+/* Calculate mean and sample variance using Welford's method
+ * 
+ * Purpose: Computes the arithmetic mean and sample variance of a dataset using
+ *          Welford's numerically stable one-pass algorithm
+ * 
+ * Algorithm: Welford's method (1962) - provides better numerical stability than
+ *            the naive two-pass algorithm, especially for datasets with large means
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements in the array
+ * 
+ * Outputs:
+ *   mean            - pointer to store the calculated mean
+ *   sample_variance - pointer to store the sample variance (denominator: n-1)
+ * 
+ * Note: Uses n-1 in denominator (Bessel's correction) for unbiased variance estimate
+ */
 STB_EXTERN void stb_meanvar(double *data, int n, double *mean, double *sample_variance);
 
-/* Given  two arrays  of data (length n1 and n2), this routine  returns  its  t value and its significance (p) as probabiilty
- * NOTE: assumes equal variance 
+/* Student's t-test for two independent samples (equal variance assumed)
+ * 
+ * Purpose: Tests whether two independent samples have different means
+ *          Uses pooled variance estimate (assumes equal population variances)
+ * 
+ * Statistical test: Student's t-test (1908)
+ * Null hypothesis: The two populations have equal means
+ * Assumptions:
+ *   - Both samples are independent
+ *   - Both populations are normally distributed (robust to mild violations)
+ *   - Equal population variances (homoscedasticity)
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   t - t-statistic value
+ *   p - two-tailed p-value for the test
+ * 
+ * Usage: Use stb_uttest() if variances are unequal (heteroscedastic data)
+ *        Use stb_ftest() to check for equal variances first
  */
 STB_EXTERN void stb_ttest(double *data1, int n1, double *data2, int n2, double *t, double *p);
 
-/* Given  two arrays  of data (length n1 and n2), this routine  returns  its  t value and its significance (p) as probabiilty
- * NOTE: assumes unequal variance 
+/* Welch's t-test for two independent samples (unequal variance assumed)
+ * 
+ * Purpose: Tests whether two independent samples have different means
+ *          Does not assume equal population variances (heteroscedastic data)
+ * 
+ * Statistical test: Welch's t-test (1947), also known as Welch's unequal variances t-test
+ * Null hypothesis: The two populations have equal means
+ * Assumptions:
+ *   - Both samples are independent
+ *   - Both populations are normally distributed (robust to mild violations)
+ *   - No assumption of equal variances
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   t - t-statistic value (Welch's t)
+ *   p - two-tailed p-value for the test
+ * 
+ * Note: Uses Welch-Satterthwaite equation for degrees of freedom
+ *       Generally more robust than Student's t-test when variances differ
  */
 STB_EXTERN void stb_uttest(double *data1, int n1, double *data2, int n2, double *t, double *p);
 
-// moderated ttest using a posterior variance estimated using stb_fit_f_dist
+/* Moderated t-test with empirical Bayes variance shrinkage
+ * 
+ * Purpose: Tests for differential expression using moderated t-statistics
+ *          Borrows information across genes to improve variance estimates
+ * 
+ * Statistical method: Empirical Bayes moderated t-test (used in limma/DESeq2)
+ * Applications: RNA-seq differential expression, microarray analysis
+ * 
+ * Method: Shrinks gene-wise variances toward a common value (posterior variance)
+ *         using hyperparameters estimated from the overall variance distribution
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample/condition
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample/condition
+ *   n2    - number of elements in second sample
+ *   pvar  - posterior variance (from stb_fit_f_dist)
+ *   pdf2  - prior degrees of freedom (from stb_fit_f_dist)
+ * 
+ * Outputs:
+ *   t - moderated t-statistic
+ *   p - two-tailed p-value
+ * 
+ * Usage: First estimate hyperparameters using stb_fit_f_dist on all genes/features
+ *        Then apply moderated t-test to each gene individually
+ * 
+ * Reference: Smyth, G. K. (2004). Linear models and empirical bayes methods for
+ *           assessing differential expression in microarray experiments.
+ */
 STB_EXTERN void stb_moderated_ttest(double *data1, int n1, double *data2, int n2, double pvar, double pdf2, double *t, double *p);
 
-/* Given  two arrays  of data (length n1 and n2), this routine  returns  its  f value and its significance (p) as probabiilty */
+/* F-test for equality of variances
+ * 
+ * Purpose: Tests whether two independent samples have equal variances
+ *          Used to check homoscedasticity assumption before t-test
+ * 
+ * Statistical test: F-test for variance ratio (Fisher, 1924)
+ * Null hypothesis: The two populations have equal variances (σ1² = σ2²)
+ * Assumptions:
+ *   - Both samples are independent
+ *   - Both populations are normally distributed (sensitive to violations)
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   f - F-statistic (ratio of variances)
+ *   p - two-tailed p-value for the test
+ * 
+ * Note: Very sensitive to non-normality; consider Levene's or Bartlett's test
+ *       for robust variance equality testing
+ *       If p < 0.05, use Welch's t-test (stb_uttest) instead of Student's t-test
+ */
 STB_EXTERN void stb_ftest(double *data1, int n1, double *data2, int n2, double *f, double *p);
 
-/* This function takes two arrays, one with the data (of total size n) and one specifying the group (0, 1, 2, ...) (with g groups) the data belongs to (total size n) and
- * performs an one-way anova and followed by the Tukey HSD test and Scheffe's method of mutliple comparisons 
+/* One-way Analysis of Variance (ANOVA) with post-hoc tests
+ * 
+ * Purpose: Tests whether three or more groups have significantly different means
+ *          Includes Tukey HSD and Scheffe's method for multiple comparisons
+ * 
+ * Statistical test: One-way ANOVA (Fisher, 1925)
+ * Null hypothesis: All group means are equal (μ1 = μ2 = ... = μg)
+ * Assumptions:
+ *   - Samples are independent
+ *   - Populations are normally distributed (robust to mild violations)
+ *   - Equal population variances (homoscedasticity)
+ * 
+ * Inputs:
+ *   data   - array of all values from all groups
+ *   n      - total number of elements across all groups
+ *   groups - array mapping each data point to its group (0, 1, 2, ..., g-1)
+ *   g      - number of groups
+ * 
+ * Outputs:
+ *   f - F-statistic
+ *   p - p-value for the F-test
+ * 
+ * Post-hoc: Performs Tukey HSD (Honest Significant Difference) test and
+ *           Scheffe's method for pairwise comparisons after significant ANOVA
+ * 
+ * Note: Use stb_kruskal_wallis() for non-parametric alternative
  */
 STB_EXTERN void stb_anova(double *data, int n, int *groups, int g, double *f, double *p);
 
-/* This function takes two arrays, one with the data (of total size n) and one specifying the group (0, 1, 2, ...) (with g groups) the data belongs to (total size n) and
- * performs an one-way Kruskal-Wallis test.
- * Note:the number of samples per groups should be >> 5, otherwise the distribution is not similar enough to the ChiSqr
+/* Kruskal-Wallis H test for independent samples (non-parametric ANOVA)
+ * 
+ * Purpose: Tests whether multiple groups have different distributions
+ *          Non-parametric alternative to one-way ANOVA
+ * 
+ * Statistical test: Kruskal-Wallis H test (1952)
+ * Null hypothesis: All groups have the same distribution
+ * Assumptions:
+ *   - Samples are independent
+ *   - Ordinal or continuous data
+ *   - Similar distribution shapes (tests for location shifts)
+ * 
+ * Inputs:
+ *   data   - array of all values from all groups
+ *   n      - total number of elements across all groups
+ *   groups - array mapping each data point to its group (0, 1, 2, ..., g-1)
+ *   g      - number of groups
+ * 
+ * Outputs:
+ *   H - H-statistic (chi-square distributed under null hypothesis)
+ *   p - p-value (based on chi-square distribution)
+ * 
+ * Note: Each group should have >> 5 samples for chi-square approximation to be valid
+ *       For very small samples, exact distribution should be used
+ *       Use when ANOVA assumptions (normality, homoscedasticity) are violated
  */
 STB_EXTERN void stb_kruskal_wallis(double *data, int n, int *groups, int g, double *H, double *p);
 
-/* The function Φ(x) is the cumulative density function (CDF) of a standard normal (Gaussian) random variable */
+/* Standard normal cumulative distribution function (CDF)
+ * 
+ * Purpose: Returns the cumulative probability P(X ≤ x) for standard normal distribution
+ *          The function Φ(x) = P(Z ≤ x) where Z ~ N(0,1)
+ * 
+ * Inputs:
+ *   x - value at which to evaluate the CDF
+ * 
+ * Returns: Probability that a standard normal random variable is less than or equal to x
+ * 
+ * Applications: Converting z-scores to probabilities, hypothesis testing, confidence intervals
+ * 
+ * Note: For non-standard normal N(μ, σ²), first standardize: z = (x - μ) / σ
+ */
 STB_EXTERN double stb_phi(double x);
 
-/* Given a rank (starting at 1 for the lowest p-value), the total number of comparisons performed and
- * the desired false discovery rate this function returns the Benjamini-Hochberg threshold. In other words,
- * if you put the individual P values in order, from smallest to largest. The smallest P value has a rank
- * 1, the next has 2, etc. Compare each individual P value to its Benjamini-Hochberg critical value (BHCV,
- * (rank/number_of_samples)*FDR. The largest P value that has P<BHCV is significant, and all of the P values
- * smaller than it are also significant, even the ones that aren't less than their Benjamini-Hochberg
- * critical value (see example).In general a FDR between 0.1 - 0.2 is reasonable.
- *
- * Dietary variable P value Rank BHCV
- * Total           <0.002   1    0.010
- * Carbohydrates    0.009   2    0.020
- * Fat              0.035   3    0.030
- * Sugars           0.044   4    0.040 <- Note that this value is higher than the BHCV but is
- * Proteins         0.046   5    0.050 <- with a FDR of 0.25 everyting BEFORE protein is siginificant also the sugars
- * Saturated        0.062   6    0.060
+/* Benjamini-Hochberg critical value for FDR control
+ * 
+ * Purpose: Computes the critical value threshold for a given rank in the 
+ *          Benjamini-Hochberg procedure for controlling false discovery rate
+ * 
+ * Statistical method: Benjamini-Hochberg procedure (1995)
+ * Controls: False Discovery Rate (FDR) - the expected proportion of false 
+ *           discoveries among all rejections
+ * 
+ * Procedure: Sort p-values from smallest to largest (rank 1 = smallest)
+ *            Compare each p-value to its critical value: (rank/m) × FDR
+ *            The largest p-value satisfying p < critical value is significant
+ *            All p-values with smaller ranks are also significant
+ * 
+ * Inputs:
+ *   rank                   - position in sorted p-values (1 = smallest, 2 = second smallest, etc.)
+ *   number_of_comparisons  - total number of hypothesis tests (m)
+ *   FDR                    - desired false discovery rate (typically 0.05, 0.1, or 0.2)
+ * 
+ * Returns: Benjamini-Hochberg critical value (BHCV) for the given rank
+ * 
+ * Example:
+ *   Dietary variable  P value  Rank  BHCV (FDR=0.25)
+ *   Total             <0.002   1     0.010
+ *   Carbohydrates      0.009   2     0.020
+ *   Fat                0.035   3     0.030
+ *   Sugars             0.044   4     0.040 <- Above threshold but still significant
+ *   Proteins           0.046   5     0.050 <- Largest significant (everything before is significant)
+ *   Saturated          0.062   6     0.060 <- Not significant
+ * 
+ * Applications: Multiple hypothesis testing, genomics, high-throughput screening
+ * Advantage: More powerful than FWER methods (Bonferroni, Šidák)
+ * 
+ * Note: Use stb_adjust_pvalues_bh() to automatically apply correction to arrays
+ *       Typical FDR values: 0.05 (stringent), 0.1-0.2 (reasonable), >0.25 (liberal)
+ * 
+ * Reference: Benjamini, Y., & Hochberg, Y. (1995). Controlling the false 
+ *            discovery rate: a practical and powerful approach to multiple testing.
+ *            Journal of the Royal Statistical Society: Series B, 57(1), 289-300.
  */
 STB_EXTERN double stb_benjamini_hochberg(int rank, int number_of_comparisons, double FDR);
 
-/* Returns the adjusted Sidak corrected P-value, the advantage is that you don't need to have a sorted list of P-values,
+/* Šidák correction for multiple comparisons
+ * 
+ * Purpose: Adjusts p-values to control family-wise error rate (FWER)
+ *          More powerful than Bonferroni when tests are independent
+ * 
+ * Method: Šidák correction (1967)
+ * Formula: p_adjusted = 1 - (1 - p)^m where m = number of comparisons
+ * 
+ * Inputs:
+ *   p                      - original p-value
+ *   number_of_comparisons  - total number of statistical tests performed
+ * 
+ * Returns: Adjusted p-value controlling FWER at desired alpha level
+ * 
+ * Advantage: No need for sorted p-values (unlike Benjamini-Hochberg)
+ * Note: Assumes independence of tests; less conservative than Bonferroni
+ *       Controls family-wise error rate, not false discovery rate
  */
 STB_EXTERN double stb_sidak(double p, int number_of_comparisons);
 
-/* Returns the adjusted bonferroni corrected P-value, the advantage is that you don't need to have a sorted list of P-values,
+/* Bonferroni correction for multiple comparisons
+ * 
+ * Purpose: Adjusts p-values to control family-wise error rate (FWER)
+ *          Most conservative multiple testing correction
+ * 
+ * Method: Bonferroni correction (1936)
+ * Formula: p_adjusted = p × m where m = number of comparisons
+ * 
+ * Inputs:
+ *   p                      - original p-value
+ *   number_of_comparisons  - total number of statistical tests performed
+ * 
+ * Returns: Adjusted p-value (capped at 1.0) controlling FWER at desired alpha level
+ * 
+ * Advantage: No need for sorted p-values (unlike Benjamini-Hochberg)
+ *            Makes no assumptions about test dependence
+ * 
+ * Note: Very conservative, reduces statistical power significantly
+ *       Controls family-wise error rate, not false discovery rate
+ *       Consider Benjamini-Hochberg for less conservative FDR control
  */
 STB_EXTERN double stb_bonferroni(double p, int number_of_comparisons);
 
-/* Apply Benjamini-Hochberg FDR correction to an array of p-values and return adjusted p-values.
- * p_values: array of p-values to adjust
- * n: number of p-values
- * adjusted_p: output array for adjusted p-values (must be pre-allocated)
- * FDR: false discovery rate (typically 0.05 or 0.1)
+/* Apply Benjamini-Hochberg FDR correction to array of p-values
  * 
- * The function sorts p-values, applies BH correction, and returns adjusted p-values in original order.
+ * Purpose: Adjusts an entire array of p-values using the Benjamini-Hochberg 
+ *          procedure, returning adjusted p-values in original order
+ * 
+ * Statistical method: Benjamini-Hochberg FDR correction (1995)
+ * Algorithm: Sorts p-values, computes adjusted p-values as:
+ *            adjusted_p[i] = p[i] × (m / rank[i])
+ *            Enforces monotonicity (adjusted values increase with rank)
+ * 
+ * Inputs:
+ *   p_values   - array of original p-values (not modified)
+ *   n          - number of p-values in array
+ *   adjusted_p - pre-allocated output array for adjusted p-values (must have size n)
+ *   FDR        - desired false discovery rate (unused in calculation, kept for API compatibility)
+ * 
+ * Outputs:
+ *   adjusted_p - adjusted p-values in original input order (compare to α for significance)
+ * 
+ * Usage: After adjustment, compare adjusted_p[i] < α (typically α = 0.05)
+ *        to determine significance for each test
+ * 
+ * Workflow:
+ *   1. Function internally sorts p-values by rank
+ *   2. Computes adjusted values maintaining monotonicity
+ *   3. Returns adjusted p-values mapped back to original input order
+ * 
+ * Applications: Gene expression analysis, metabolomics, multiple comparisons
+ * Advantage: More convenient than stb_benjamini_hochberg() for array operations
+ * 
+ * Note: Output array must be pre-allocated with size n
+ *       Adjusted p-values may exceed 1.0 and are capped at 1.0
+ *       Original p_values array is not modified
+ * 
+ * Reference: Benjamini, Y., & Hochberg, Y. (1995). Controlling the false 
+ *            discovery rate: a practical and powerful approach to multiple testing.
  */
 STB_EXTERN void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_p, double FDR);
 
@@ -560,12 +831,35 @@ STB_EXTERN void stb_adjust_pvalues_bh(double *p_values, int n, double *adjusted_
  */
 STB_EXTERN double stb_log2_fold_change(double mean1, double mean2, double pseudocount);
 
-/* Perform the Mann-Whitney U test, the resulting corrected P-value should be the same as that of the R statistical program.
- * However, for tied data no exact P values is calculated. It is possible, but would require a more complicated program see
- * for example:
- * Alexander Marx, Christina Backes, Eckart Meese, Hans-Peter Lenhof, Andreas Keller,
- * EDISON-WMW: Exact Dynamic Programing Solution of the Wilcoxon–Mann–Whitney Test,
- * Genomics, Proteomics & Bioinformatics, Volume 14, Issue 1, 2016, Pages 55-61
+/* Mann-Whitney U test (Wilcoxon rank-sum test)
+ * 
+ * Purpose: Tests whether two independent samples have different distributions
+ *          Non-parametric alternative to independent samples t-test
+ * 
+ * Statistical test: Mann-Whitney U test (1947) / Wilcoxon rank-sum test (1945)
+ * Null hypothesis: The two populations have identical distributions
+ * Assumptions:
+ *   - Samples are independent
+ *   - Ordinal or continuous data
+ *   - Similar distribution shapes (for location shift interpretation)
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   U - U-statistic (smaller of U1 and U2)
+ *   p - two-tailed p-value (consistent with R's wilcox.test)
+ * 
+ * Note: Results match R statistical program for untied data
+ *       For tied data, normal approximation is used (not exact p-value)
+ *       Use when t-test assumptions are violated (non-normal data)
+ * 
+ * Reference: For exact p-values with ties, see:
+ *           Marx et al. (2016) EDISON-WMW: Exact Dynamic Programming Solution
+ *           of the Wilcoxon-Mann-Whitney Test. Genomics Proteomics Bioinformatics, 14(1), 55-61
  */
 STB_EXTERN void stb_mann_whitney(double *data1, int n1, double *data2, int n2, double *U, double *p);
 
@@ -579,173 +873,731 @@ STB_EXTERN void stb_mann_whitney(double *data1, int n1, double *data2, int n2, d
  */
 STB_EXTERN void stb_fisher2x2(int a, int b, int c, int d, double *p);
 
-/* Given a vector with observed and expected values with the amount of rows and columns, this function
- * performs the chisquare test and returns 
+/* Chi-square goodness-of-fit test (vector input)
+ * 
+ * Purpose: Tests whether observed frequencies match expected frequencies
+ *          Used for categorical data analysis
+ * 
+ * Statistical test: Pearson's chi-square test (1900)
+ * Null hypothesis: Observed frequencies follow the expected distribution
+ * Assumptions:
+ *   - Expected frequency ≥ 5 for each cell (rule of thumb)
+ *   - Observations are independent
+ * 
+ * Inputs:
+ *   observed - array of observed frequencies (flattened row×column matrix)
+ *   expected - array of expected frequencies (same dimensions)
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - chi-square statistic (test statistic value)
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: For small expected frequencies (<5), consider Fisher's exact test
+ *       Degrees of freedom = (rows-1) × (columns-1)
  */
 STB_EXTERN void stb_chisqr(double *observed, double *expected, int rows, int columns, double *CV, double *p);
 
-/* Given a matrix with observed and expected values with the amount of rows anc columns, this function
- * performs the chisquare test and returns 
+/* Chi-square goodness-of-fit test (matrix input)
+ * 
+ * Purpose: Tests whether observed frequencies match expected frequencies
+ *          Matrix version for direct 2D array input
+ * 
+ * Statistical test: Pearson's chi-square test (1900)
+ * Null hypothesis: Observed frequencies follow the expected distribution
+ * Assumptions:
+ *   - Expected frequency ≥ 5 for each cell (rule of thumb)
+ *   - Observations are independent
+ * 
+ * Inputs:
+ *   observed - 2D array of observed frequencies [rows][columns]
+ *   expected - 2D array of expected frequencies [rows][columns]
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - chi-square statistic (test statistic value)
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: Identical to stb_chisqr but accepts 2D arrays directly
  */
 STB_EXTERN void stb_chisqr_matrix(double **observed, double **expected, int rows, int columns, double *CV, double *p);
 
-/* Given a vector with observed and expected values with the amount of rows anc columns, this function
- * performs the G-test and returns the probability (based on the ChiSquared distribution)
+/* G-test of independence (vector input)
+ * 
+ * Purpose: Tests independence in contingency tables using likelihood ratios
+ *          Alternative to chi-square test, often more accurate for small samples
+ * 
+ * Statistical test: G-test (log-likelihood ratio test)
+ * Null hypothesis: Variables are independent (no association)
+ * Assumptions:
+ *   - Observations are independent
+ *   - Test statistic follows chi-square distribution asymptotically
+ * 
+ * Inputs:
+ *   observed - array of observed frequencies (flattened row×column matrix)
+ *   expected - array of expected frequencies (same dimensions)
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - G-statistic (2 × sum of observed × ln(observed/expected))
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: G-test is recommended over chi-square for small expected frequencies
+ *       Converges to chi-square for large samples
+ *       Also known as maximum likelihood chi-square or likelihood ratio test
  */
 STB_EXTERN void stb_gtest(double *observed, double *expected, int rows, int columns, double *CV, double *p);
 
-/* Given a matrix with observed and expected values with the amount of rows and columns, this function
- * performs the G-test and returns the probability (based on the ChiSquared distribution)
+/* G-test of independence (matrix input)
+ * 
+ * Purpose: Tests independence in contingency tables using likelihood ratios
+ *          Matrix version for direct 2D array input
+ * 
+ * Statistical test: G-test (log-likelihood ratio test)
+ * Null hypothesis: Variables are independent (no association)
+ * Assumptions:
+ *   - Observations are independent
+ *   - Test statistic follows chi-square distribution asymptotically
+ * 
+ * Inputs:
+ *   observed - 2D array of observed frequencies [rows][columns]
+ *   expected - 2D array of expected frequencies [rows][columns]
+ *   rows     - number of rows in the contingency table
+ *   columns  - number of columns in the contingency table
+ * 
+ * Outputs:
+ *   CV - G-statistic (2 × sum of observed × ln(observed/expected))
+ *   p  - p-value based on chi-square distribution
+ * 
+ * Note: Identical to stb_gtest but accepts 2D arrays directly
  */
 STB_EXTERN void stb_gtest_matrix(double **observed, double **expected, int rows, int columns, double *CV, double *p);
 
-/* Given an array of data, this function tests if the data is normally distributed
- * and returns the A value and the p-value. If the p-value is small (<0.05) the data is
- * not normally distributed! Care should be taken that the number of samples is not too
- * small, since this can lead to false positives/negatives (sample size > 7)
+/* Anderson-Darling test for normality (one-sample)
+ * 
+ * Purpose: Tests whether a sample comes from a normal distribution
+ *          More sensitive than Kolmogorov-Smirnov test to deviations in tails
+ * 
+ * Statistical test: Anderson-Darling test (1952)
+ * Null hypothesis: The data follows a normal distribution
+ * Assumptions:
+ *   - Continuous data
+ *   - Sample size > 7 (for reliable results)
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements (should be > 7)
+ * 
+ * Outputs:
+ *   A - Anderson-Darling A² statistic
+ *   p - p-value (if p < 0.05, reject normality assumption)
+ * 
+ * Note: Small sample sizes can lead to unreliable results
+ *       Use before applying parametric tests that assume normality
+ *       More powerful than Shapiro-Wilk for detecting deviations in tails
+ * 
+ * Applications: Verifying assumptions for t-test, ANOVA, linear regression
  */
 STB_EXTERN void stb_anderson_darling(double *data, int n, double *A, double *p);
 
-/* Anderson-Darling 2-sample test. */
+/* Anderson-Darling two-sample test
+ * 
+ * Purpose: Tests whether two samples come from the same distribution
+ *          Non-parametric test, does not assume specific distribution
+ * 
+ * Statistical test: Anderson-Darling k-sample test (Scholz & Stephens, 1987)
+ * Null hypothesis: Both samples come from the same continuous distribution
+ * Assumptions:
+ *   - Samples are independent
+ *   - Continuous data
+ * 
+ * Inputs:
+ *   data1 - array of values for first sample
+ *   n1    - number of elements in first sample
+ *   data2 - array of values for second sample
+ *   n2    - number of elements in second sample
+ * 
+ * Outputs:
+ *   A - Anderson-Darling A² statistic
+ *   p - p-value for the test
+ * 
+ * Applications: Comparing distributions without assuming normality
+ *               More powerful than Kolmogorov-Smirnov for detecting differences
+ */
 STB_EXTERN void stb_2sample_anderson_darling(double *data1, int n1, double *data2, int n2, double *A, double *p);
 
-/* Anderson-Darling k-sample test. */
+/* Anderson-Darling k-sample test
+ * 
+ * Purpose: Tests whether k samples (k ≥ 2) come from the same distribution
+ *          Extension of two-sample test to multiple groups
+ * 
+ * Statistical test: Anderson-Darling k-sample test (Scholz & Stephens, 1987)
+ * Null hypothesis: All samples come from the same continuous distribution
+ * Assumptions:
+ *   - Samples are independent
+ *   - Continuous data
+ * 
+ * Inputs:
+ *   data   - array of all values from all groups
+ *   n      - total number of elements across all groups
+ *   groups - array mapping each data point to its group (0, 1, 2, ..., g-1)
+ *   g      - number of groups (k ≥ 2)
+ * 
+ * Outputs:
+ *   A - Anderson-Darling A²k statistic
+ *   p - p-value for the test
+ * 
+ * Applications: Non-parametric alternative to ANOVA for comparing distributions
+ *               Does not require normality or equal variances
+ */
 STB_EXTERN void stb_ksample_anderson_darling(double *data, int n, int *groups, int g, double *A, double *p);
 
-/* This function returns the min , q1, q2, q3 and max values according to https://en.wikipedia.org/wiki/Quartile */
+/* Calculate quartiles and five-number summary
+ * 
+ * Purpose: Computes the five-number summary of a dataset
+ *          Provides robust measures of central tendency and spread
+ * 
+ * Method: Uses Method 2 from https://en.wikipedia.org/wiki/Quartile
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements in the array
+ * 
+ * Outputs:
+ *   min    - minimum value
+ *   q1     - first quartile (25th percentile)
+ *   median - median (second quartile, 50th percentile)
+ *   q3     - third quartile (75th percentile)
+ *   max    - maximum value
+ * 
+ * Applications: Exploratory data analysis, box plots, outlier detection
+ *               Interquartile range (IQR) = q3 - q1
+ *               Outliers often defined as values < q1 - 1.5×IQR or > q3 + 1.5×IQR
+ */
 STB_EXTERN void stb_quartiles(double *data, int n, double *min, double *q1, double *median, double *q3, double *max);
 
-/* Free a histogram */
+/* Free histogram memory
+ * 
+ * Purpose: Deallocates memory for histogram structure
+ * 
+ * Inputs:
+ *   hist - pointer to histogram structure to free
+ * 
+ * Note: Always call after finishing with histogram to prevent memory leaks
+ */
 STB_EXTERN void stb_free_histogram(struct stb_hist *hist);
 
-/* Keeps a score histogram, in which scores are counted into bins 0 <= x < 1, bin_width can be
- * a desired bin_width, or to calculate bin width using Freedman–Diaconis rule or -2 to calculate bin width using Rice rule
- * for this the amount of data points (n) should be > 3. To just initialize an empty histogram use n = 0
- * AND provide umin, umax and bin_width!
+/* Create a histogram from data
+ * 
+ * Purpose: Constructs a frequency histogram for numerical data
+ *          Supports automatic bin width calculation or manual specification
+ * 
+ * Inputs:
+ *   data      - array of numerical values (or NULL to initialize empty histogram)
+ *   n         - number of elements (use 0 for empty histogram)
+ *   bin_width - bin width for histogram, or:
+ *               -1 for Freedman-Diaconis rule: 2×IQR×n^(-1/3)
+ *               -2 for Rice rule: n^(1/3)
+ *   umin      - minimum value for histogram range (required if n=0)
+ *   umax      - maximum value for histogram range (required if n=0)
+ * 
+ * Returns: Pointer to stb_hist structure containing histogram
+ *          Must be freed with stb_free_histogram() after use
+ * 
+ * Note: For automatic bin width (n > 3 required):
+ *       Freedman-Diaconis is more robust to outliers
+ *       Rice rule works well for normally distributed data
+ * 
+ * Usage: Create empty histogram with n=0 and add data with stb_histogram_add()
+ *        Or create and populate in one call with n > 0
  */
 STB_EXTERN struct stb_hist *stb_histogram(double *data, int n, double bin_width, double umin, double umax);
 
-// print the histogram
+/* Print histogram to standard output
+ * 
+ * Purpose: Displays histogram in text format for visualization
+ * 
+ * Inputs:
+ *   hist - pointer to histogram structure (from stb_histogram)
+ * 
+ * Output: Prints histogram bins and counts to stdout
+ */
 STB_EXTERN void stb_print_histogram(struct stb_hist *hist);
 
-// add some data to the histogram previously made using stb_histogram
+/* Add data to an existing histogram
+ * 
+ * Purpose: Updates histogram with new data points
+ *          Useful for incremental histogram construction
+ * 
+ * Inputs:
+ *   data - array of numerical values to add
+ *   n    - number of elements to add
+ *   hist - pointer to existing histogram structure
+ * 
+ * Note: Histogram bin structure remains unchanged;
+ *       values outside [min, max] are ignored
+ */
 STB_EXTERN void stb_histogram_add(double *data, int n, struct stb_hist *hist);
 
-/* Calculate the factorial */
+/* Calculate factorial n!
+ * 
+ * Purpose: Computes the factorial of a non-negative integer
+ *          n! = n × (n-1) × (n-2) × ... × 2 × 1
+ * 
+ * Inputs:
+ *   n - non-negative integer
+ * 
+ * Returns: n! as a double
+ * 
+ * Note: Returns exact values for small n
+ *       For large n, may lose precision due to floating point limits
+ *       Consider stb_log_factorial() for large values
+ *       0! = 1 by definition
+ */
 STB_EXTERN double stb_factorial(int n);
 
-/* Calculate the factorial */
+/* Calculate logarithm of factorial log(n!)
+ * 
+ * Purpose: Computes ln(n!) using lookup table and approximation
+ *          Avoids overflow for large factorials
+ * 
+ * Inputs:
+ *   n - non-negative integer
+ * 
+ * Returns: ln(n!) as a double
+ * 
+ * Method: Uses lookup table for small n, Stirling's approximation for large n
+ *         More numerically stable than log(stb_factorial(n))
+ * 
+ * Applications: Combinatorics, probability calculations, statistical tests
+ *               Useful for binomial and hypergeometric distributions
+ */
 STB_EXTERN double stb_log_factorial(int n);
 
-/* Compute (numerical stable) sum of the data using the Neumaier summation algorithm */
+/* Numerically stable summation using Neumaier algorithm
+ * 
+ * Purpose: Computes sum of array elements with reduced floating point error
+ * 
+ * Algorithm: Neumaier's improvement (1974) to Kahan summation
+ *            Compensates for floating point rounding errors
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements
+ * 
+ * Returns: Sum of all elements with improved numerical accuracy
+ * 
+ * Note: More accurate than naive summation for large arrays or values
+ *       with very different magnitudes
+ *       Minimal performance overhead compared to naive sum
+ */
 STB_EXTERN double stb_sum(double *data, int n);
 
-/* Returns Spearman's Rank correlation of two vectors x and y, each of size n */
+/* Spearman's rank correlation coefficient
+ * 
+ * Purpose: Measures monotonic relationship between two variables
+ *          Non-parametric alternative to Pearson correlation
+ * 
+ * Statistical measure: Spearman's ρ (rho), Spearman (1904)
+ * Range: -1 (perfect negative monotonic) to +1 (perfect positive monotonic)
+ * 
+ * Inputs:
+ *   x - array of first variable values
+ *   y - array of second variable values
+ *   n - number of paired observations
+ * 
+ * Returns: Spearman's rank correlation coefficient (ρ)
+ * 
+ * Interpretation:
+ *   |ρ| near 1: Strong monotonic relationship
+ *   ρ near 0: No monotonic relationship
+ *   ρ > 0: Variables increase together
+ *   ρ < 0: One increases as other decreases
+ * 
+ * Advantages: Robust to outliers, works with ordinal data,
+ *             detects non-linear monotonic relationships
+ * 
+ * Applications: Bioinformatics (gene expression correlation),
+ *               when data violates Pearson assumptions
+ */
 STB_EXTERN double stb_spearman(double *x, double *y, int n);
 
-/* Returns Kendall's Rank correlation and the probability of two vectors x and y, each of size n */
+/* Kendall's rank correlation coefficient (tau)
+ * 
+ * Purpose: Measures ordinal association between two variables
+ *          Alternative to Spearman, more robust for small samples
+ * 
+ * Statistical measure: Kendall's τ (tau), Kendall (1938)
+ * Range: -1 (perfect disagreement) to +1 (perfect agreement)
+ * 
+ * Inputs:
+ *   x - array of first variable values
+ *   y - array of second variable values
+ *   n - number of paired observations
+ * 
+ * Outputs:
+ *   tau  - Kendall's tau correlation coefficient
+ *   z    - z-score for significance test
+ *   prob - two-tailed p-value
+ * 
+ * Returns: Error code (0 for success)
+ * 
+ * Interpretation:
+ *   τ = (C - D) / (C + D) where C = concordant pairs, D = discordant pairs
+ *   |τ| near 1: Strong ordinal association
+ *   τ near 0: No association
+ * 
+ * Note: More conservative than Spearman, better for small samples
+ *       Has direct probabilistic interpretation
+ * 
+ * Applications: Small sample sizes, ordinal data, tied ranks
+ */
 STB_EXTERN double stb_kendall(double *x, double *y, int n, double *tau, double *z, double *prob);
 
-// PDF
+/* Gumbel distribution probability density function (PDF)
+ * 
+ * Purpose: Calculates the probability density at x for Gumbel distribution
+ * 
+ * Distribution: Gumbel (Type-I extreme value distribution)
+ * PDF: f(x) = (1/σ) × exp(-(z + exp(-z))) where z = (x-μ)/σ
+ * 
+ * Inputs:
+ *   x   - value at which to evaluate PDF
+ *   mu  - location parameter (mode of distribution)
+ *   sig - scale parameter (σ > 0)
+ * 
+ * Outputs:
+ *   p - probability density at x
+ * 
+ * Applications: Extreme value theory, modeling maxima,
+ *               flood frequency analysis, reliability engineering
+ */
 STB_EXTERN void stb_pdf_gumbel(double x, double mu, double sig, double *p);
 
-// CDF
+/* Gumbel distribution cumulative distribution function (CDF)
+ * 
+ * Purpose: Calculates cumulative probability P(X ≤ x) for Gumbel distribution
+ * 
+ * Distribution: Gumbel (Type-I extreme value distribution)
+ * CDF: F(x) = exp(-exp(-(x-μ)/σ))
+ * 
+ * Inputs:
+ *   x   - value at which to evaluate CDF
+ *   mu  - location parameter (mode of distribution)
+ *   sig - scale parameter (σ > 0)
+ * 
+ * Outputs:
+ *   p - cumulative probability P(X ≤ x)
+ * 
+ * Applications: Calculating probability of extreme events,
+ *               return periods in hydrology
+ */
 STB_EXTERN void stb_cdf_gumbel(double x, double mu, double sig, double *p);
 
-// inverse CDF a.k.a quantile function
+/* Gumbel distribution inverse CDF (quantile function)
+ * 
+ * Purpose: Calculates the value x for which P(X ≤ x) = p
+ * 
+ * Distribution: Gumbel (Type-I extreme value distribution)
+ * Inverse CDF: Q(p) = μ - σ × ln(-ln(p))
+ * 
+ * Inputs:
+ *   mu  - location parameter (mode of distribution)
+ *   sig - scale parameter (σ > 0)
+ *   p   - cumulative probability (0 < p < 1)
+ * 
+ * Returns: x such that P(X ≤ x) = p
+ * 
+ * Applications: Calculating return levels for given return periods,
+ *               generating Gumbel random variates
+ */
 STB_EXTERN double stb_icdf_gumbel(double mu, double sig, double p);
 
-/* Fit the Gumbel distribution using maximum likelihood estimation (MLE) */
+/* Estimate Gumbel distribution parameters using maximum likelihood
+ * 
+ * Purpose: Fits Gumbel distribution to data using MLE
+ * 
+ * Method: Maximum likelihood estimation for Gumbel parameters
+ * 
+ * Inputs:
+ *   data - array of observed values (typically maxima or extremes)
+ *   n    - number of observations
+ * 
+ * Outputs:
+ *   mu  - estimated location parameter
+ *   sig - estimated scale parameter
+ * 
+ * Applications: Extreme value analysis, fitting distribution to
+ *               annual maximum flood levels, wind speeds, etc.
+ * 
+ * Note: Data should represent extreme values (maxima) from samples
+ */
 STB_EXTERN void stb_est_gumbel(double *data, int n, double *mu, double *sig);
 
-/* Calculate the linear regression
- * y = ax + b
- *
- * x,y  = arrays of data
- * n = number of data points
- * a = output slope
- * b = output intercept
- * r = output correlation coefficient (can be NULL if you don't want it)
+/* Linear regression (least squares fit)
+ * 
+ * Purpose: Fits a straight line y = a×x + b to data using ordinary least squares
+ * 
+ * Statistical method: Linear regression via least squares (Legendre, 1805; Gauss, 1809)
+ * Model: y = a×x + b where a is slope, b is intercept
+ * Minimizes: Sum of squared residuals Σ(yᵢ - ŷᵢ)²
+ * 
+ * Inputs:
+ *   x - array of independent variable values (predictor)
+ *   y - array of dependent variable values (response)
+ *   n - number of data points (must be ≥ 2)
+ * 
+ * Outputs:
+ *   a - slope of fitted line (coefficient of x)
+ *   b - y-intercept of fitted line (constant term)
+ *   r - Pearson correlation coefficient (optional, can be NULL)
+ *       |r| = 1 indicates perfect linear relationship
+ *       r = 0 indicates no linear relationship
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Applications: Calibration curves, trend analysis, predictive modeling
+ * Assumptions: Linear relationship, homoscedasticity, independent errors
+ * 
+ * Note: Function computes exact solution using normal equations
+ *       For multiple predictors, use stb_multi_linear_regression()
+ *       Returns error if n < 2 or variance of x is zero
  */
 STB_EXTERN int stb_linfit(const double *x, const double *y, int n, double *a, double *b, double *r);
 
-/* Calculate the exponential regression
- * Note: The data is tranformed before fitting it, so we might not get the best fit
- * y = a * e^(b * x)
- *
- * x,y  = arrays of data
- * n = number of data points
- * a = output base
- * b = output exp
- * r = output correlation coefficient (can be NULL if you don't want it)
+/* Exponential regression (exponential curve fitting)
+ * 
+ * Purpose: Fits an exponential growth/decay model y = a × e^(b×x) to data
+ *          Uses logarithmic transformation and linear regression
+ * 
+ * Mathematical model: y = a × e^(b×x)
+ * Method: Linearizes via log transform: ln(y) = ln(a) + b×x
+ *         Applies linear regression on transformed data
+ * 
+ * Inputs:
+ *   x - array of independent variable values
+ *   y - array of dependent variable values (must be positive)
+ *   n - number of data points (must be ≥ 2)
+ * 
+ * Outputs:
+ *   a - base coefficient (y-intercept in original scale)
+ *   b - exponential rate (positive for growth, negative for decay)
+ *   r - correlation coefficient for linearized fit (optional, can be NULL)
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Applications: Population growth, radioactive decay, compound interest,
+ *               bacterial growth, drug elimination kinetics
+ * 
+ * Limitations: Data transformation approach may not yield optimal fit
+ *              Assumes log-normal error structure
+ *              All y values must be positive (negative/zero values cause error)
+ * 
+ * Note: For b > 0: exponential growth; b < 0: exponential decay
+ *       Consider non-linear least squares for heteroscedastic data
  */
 STB_EXTERN int stb_expfit(const double *x, const double *y, int n, double *a, double *b, double *r);
 
-/* Calculate the polynomial regression
- * y = retval[2]* x^2 + retval[1]* x^1 + retval[0]* x^0
- *
- * x = x-axis values
- * y = y-axis values
- * N = number of data-points
- * n = degree of polynomial
+/* Polynomial regression (polynomial curve fitting)
+ * 
+ * Purpose: Fits a polynomial of degree n to data using least squares
+ *          Returns coefficients for y = c[n]×x^n + c[n-1]×x^(n-1) + ... + c[1]×x + c[0]
+ * 
+ * Mathematical model: y = Σ(cᵢ × x^i) for i = 0 to n
+ * Method: Solves normal equations using matrix operations
+ *         Constructs and solves Vandermonde system
+ * 
+ * Inputs:
+ *   x - array of independent variable values
+ *   y - array of dependent variable values
+ *   N - number of data points (must be > n)
+ *   n - degree of polynomial (n=1 is linear, n=2 is quadratic, etc.)
+ * 
+ * Returns: Pointer to dynamically allocated array of coefficients [c[0], c[1], ..., c[n]]
+ *          Array has size (n+1) - caller must free() after use
+ *          Returns NULL on error
+ * 
+ * Coefficient order: retval[0] = constant term (x^0)
+ *                    retval[1] = linear coefficient (x^1)
+ *                    retval[2] = quadratic coefficient (x^2)
+ *                    ...
+ *                    retval[n] = highest degree coefficient (x^n)
+ * 
+ * Applications: Calibration curves, trend fitting, response surface modeling
+ * 
+ * Warning: High-degree polynomials (n > 5) may cause numerical instability
+ *          Can produce Runge's phenomenon (oscillation) with high degrees
+ *          Overfitting risk increases with polynomial degree
+ * 
+ * Usage example:
+ *   double *fit = stb_polyfit(x, y, 10, 2);  // Fit quadratic (degree 2)
+ *   // y_predicted = fit[0] + fit[1]*x + fit[2]*x²
+ *   free(fit);
+ * 
+ * Note: For n=1, prefer stb_linfit() for better numerical stability
+ *       Must have N > n (more data points than polynomial degree)
  */
 STB_EXTERN double *stb_polyfit(const double *x, const double *y, int N, int n);
 
-/* Calculate the power regression
- * Note: The data is tranformed before fitting it, so we might not get the best fit
- * y = a * x^b
- *
- * x,y  = arrays of data
- * n = number of data points
- * a = output base
- * b = output exponent
- * r = output correlation coefficient (can be NULL if you don't want it)
+/* Power law regression (power curve fitting)
+ * 
+ * Purpose: Fits a power law model y = a × x^b to data
+ *          Uses logarithmic transformation and linear regression
+ * 
+ * Mathematical model: y = a × x^b
+ * Method: Linearizes via log-log transform: ln(y) = ln(a) + b×ln(x)
+ *         Applies linear regression on log-transformed data
+ * 
+ * Inputs:
+ *   x - array of independent variable values (must be positive)
+ *   y - array of dependent variable values (must be positive)
+ *   n - number of data points (must be ≥ 2)
+ * 
+ * Outputs:
+ *   a - scaling coefficient (y-intercept in original scale)
+ *   b - power law exponent (elasticity, scaling exponent)
+ *   r - correlation coefficient for linearized fit (optional, can be NULL)
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Applications: Allometric scaling, physics laws, fractal analysis,
+ *               metabolic rates, city populations, frequency distributions
+ * 
+ * Interpretation of b:
+ *   b = 1: Linear relationship
+ *   b > 1: Superlinear (accelerating) growth
+ *   0 < b < 1: Sublinear (decelerating) growth
+ *   b < 0: Inverse relationship (hyperbolic decay)
+ * 
+ * Limitations: Data transformation may not yield optimal fit
+ *              Assumes log-log error structure
+ *              All x and y values must be positive
+ * 
+ * Examples: Kleiber's law (metabolic rate ∝ mass^0.75)
+ *           Surface area ∝ volume^(2/3)
+ * 
+ * Note: Consider non-linear least squares for better fit quality
  */
 STB_EXTERN int stb_powfit(const double *x, const double *y, int n, double *a, double *b, double *r);
 
-/* Lagrange interpolation 
- * x = x values
- * y = y values
- * n = number of data points
- * xp = value of x to interpolate y -> f(xp) = sum (the interpolated value)
+/* Lagrange polynomial interpolation
+ * 
+ * Purpose: Estimates value at point xp using Lagrange interpolating polynomial
+ *          Passes exactly through all given data points
+ * 
+ * Mathematical method: Lagrange interpolation (1795)
+ * Formula: P(x) = Σ yᵢ × Lᵢ(x) where Lᵢ(x) = Π[(x - xⱼ)/(xᵢ - xⱼ)] for j ≠ i
+ * 
+ * Inputs:
+ *   x  - array of x-coordinates of known points (must be distinct)
+ *   y  - array of y-coordinates of known points
+ *   n  - number of data points
+ *   xp - x-coordinate at which to interpolate (evaluation point)
+ * 
+ * Returns: Interpolated value f(xp) = P(xp)
+ * 
+ * Properties: Polynomial of degree (n-1) passing through all n points
+ *             Unique polynomial satisfying the interpolation conditions
+ * 
+ * Applications: Numerical interpolation, curve fitting through specific points,
+ *               polynomial approximation of functions
+ * 
+ * Advantages: Simple to implement, passes exactly through data points
+ *             Works for any number of points
+ * 
+ * Disadvantages: Prone to Runge's phenomenon with many points (oscillation)
+ *                Computationally expensive for large n (O(n²))
+ *                Poor extrapolation properties outside data range
+ * 
+ * Warning: x values must be distinct (no duplicates)
+ *          Interpolation is more reliable than extrapolation
+ *          Use with caution for n > 10 (oscillation risk)
+ * 
+ * Note: For uniformly spaced points, consider Newton's divided differences
+ *       For large datasets, consider spline interpolation instead
  */
 STB_EXTERN double stb_lagrange(double *x, double *y, int n, double xp);
 
 typedef double (*stb_function)(double);
 
-/* This function returns the area under a curve of a given function f
- * a = x[0]
- * b = x[n]
- * n = number of intervals
- * f = the curve function that is used to calculate y (the height of each slice)
+/* Trapezoidal rule for numerical integration
+ * 
+ * Purpose: Computes definite integral ∫ᵇₐ f(x)dx using composite trapezoidal rule
+ * 
+ * Mathematical method: Trapezoidal rule (Newton-Cotes quadrature)
+ * Formula: ∫ᵇₐ f(x)dx ≈ (h/2) × [f(a) + 2∑f(xᵢ) + f(b)]
+ *          where h = (b-a)/n and xᵢ are equally spaced points
+ * 
+ * Inputs:
+ *   a - lower limit of integration
+ *   b - upper limit of integration
+ *   n - number of intervals (trapezoids)
+ *   f - pointer to function to integrate (must accept double, return double)
+ * 
+ * Returns: Approximate value of the definite integral
+ * 
+ * Accuracy: Error ~ O(h²) = O((b-a)²/n²) for smooth functions
+ *           More intervals (larger n) give better accuracy
+ * 
+ * Applications: Numerical integration, area under curve, probability calculations,
+ *               physics problems (work, center of mass, etc.)
+ * 
+ * Usage: Faster but less accurate than adaptive methods
+ *        For automatic convergence, use stb_trapezoidal() instead
+ * 
+ * Example:
+ *   double my_func(double x) { return x * x; }
+ *   double area = stb_trap(0.0, 1.0, 100, my_func);  // ≈ 0.333...
+ * 
+ * Note: Assumes function f is continuous on [a, b]
+ *       For oscillatory functions, may need large n
+ *       For adaptive integration, see stb_trapezoidal()
  */
 STB_EXTERN double stb_trap(double a, double b, int n, stb_function f);
 
-/* This function perform integration by trapezoidal rule until converged to the given accuracy
- * or till LIMIT iterations has been reached and returns the area under a curve of a given function f
- * (Requires: stb_trap)
- * a = x[0]
- * b = x[n]
- * n = current number of intervals
- * accuracy = the desired accuracy
- * f = the curve function that is used to calculate y (the height of each slice)
- *
- * Example:
- * double func1(double x)
- * {
- *     return (1.0 / (1.0 + stb_sqr(x)));
- * }
+/* Adaptive trapezoidal integration with convergence
  * 
- * int main()
- * {
- *     int intervals = 10;
- *     double accuracy = 0.000001;
- *     double x0 = 1;
- *     double xn = 5;
- *     area = stb_trapezoidal(x0, xn, &intervals, accuracy, func1);
- *     printf("Area = %lf (required: %i intervals)\n", area, intervals);
- *     return 0;
- * }
+ * Purpose: Performs numerical integration using adaptive trapezoidal rule
+ *          Automatically refines until desired accuracy is achieved
+ * 
+ * Mathematical method: Iterative trapezoidal rule with Richardson extrapolation
+ * Algorithm: Doubles intervals each iteration until |new_area - old_area| < accuracy
+ *            or maximum iterations reached
+ * 
+ * Inputs:
+ *   a        - lower limit of integration
+ *   b        - upper limit of integration  
+ *   n        - pointer to initial number of intervals (updated with final count)
+ *   accuracy - desired absolute accuracy for convergence
+ *   f        - pointer to function to integrate
+ * 
+ * Outputs:
+ *   n - updated with actual number of intervals used
+ * 
+ * Returns: Approximate value of definite integral ∫ᵇₐ f(x)dx
+ * 
+ * Convergence: Iteratively increases intervals until successive approximations
+ *              differ by less than accuracy parameter
+ *              Prints warning if maximum iterations reached without convergence
+ * 
+ * Applications: Numerical integration when accuracy requirements are known,
+ *               statistical distributions, probability calculations
+ * 
+ * Advantages: Automatic refinement, guaranteed accuracy (if converged)
+ * Disadvantages: May be slow for difficult functions, no error estimate
+ * 
+ * Example:
+ *   double func1(double x) { return 1.0 / (1.0 + x*x); }
+ *   int intervals = 10;
+ *   double area = stb_trapezoidal(1.0, 5.0, &intervals, 1e-6, func1);
+ *   printf("Area = %lf (required: %i intervals)\n", area, intervals);
+ * 
+ * Note: Uses stb_trap() internally for each iteration
+ *       For smooth functions, converges quickly (doubling rule efficient)
+ *       For discontinuous functions, may fail to converge
  */
 STB_EXTERN double stb_trapezoidal(double a, double b, int *n, double accuracy, stb_function f);
 
@@ -783,75 +1635,627 @@ static inline double stb_sqr(double x)
 	return x * x;
 }
 
-/* Used for the initialization of xoshiro512**, but could also be used as a stand alone PRNG */
+/* SplitMix64 pseudo-random number generator
+ * 
+ * Purpose: Fast 64-bit PRNG primarily used for seeding other generators
+ *          Can also be used standalone for non-cryptographic random numbers
+ * 
+ * Algorithm: SplitMix64 by Steele et al. (2014)
+ * Properties: Period = 2^64, very fast, good statistical quality
+ * 
+ * Input:
+ *   seed - 64-bit state/seed (updated by reference in internal use)
+ * 
+ * Returns: 64-bit pseudo-random integer
+ * 
+ * Applications: Seeding xoshiro/xoroshiro generators, hash table randomization
+ * 
+ * Note: Designed for initialization, not main PRNG
+ *       Used internally by stb_sxoshiro512() for state initialization
+ *       Not suitable for cryptographic purposes
+ * 
+ * Reference: Steele Jr, G. L., Lea, D., & Flood, C. H. (2014).
+ *            Fast splittable pseudorandom number generators.
+ */
 STB_EXTERN uint64_t stb_splitmix64(uint64_t seed);
 
-/* Seed xoshiro512** */
+/* Initialize xoshiro512** state
+ * 
+ * Purpose: Seeds the xoshiro512** generator with proper state initialization
+ * 
+ * Input:
+ *   seed - 64-bit seed value
+ * 
+ * Returns: Pointer to dynamically allocated 512-bit state array (8 × uint64_t)
+ *          Caller must free() after use
+ * 
+ * Usage: Call once to initialize, then pass state to stb_xoshiro512()
+ * 
+ * Note: Uses SplitMix64 internally to generate well-distributed initial state
+ *       Ensures non-zero state (required for xoshiro512**)
+ */
 STB_EXTERN uint64_t *stb_sxoshiro512(uint64_t seed);
 
-/* xoshiro512** PRNG with 64-bit output and 512-bit state*/
+/* xoshiro512** pseudo-random number generator
+ * 
+ * Purpose: High-quality, fast 64-bit PRNG with very long period
+ * 
+ * Algorithm: xoshiro512** by Blackman & Vigna (2018)
+ * Properties: Period = 2^512 - 1, excellent statistical quality
+ *             Passes BigCrush test suite, 64-bit output
+ * 
+ * Input:
+ *   s - pointer to 512-bit state (8 × uint64_t, modified in-place)
+ * 
+ * Returns: 64-bit pseudo-random integer uniformly distributed in [0, 2^64-1]
+ * 
+ * Applications: Simulations, Monte Carlo methods, gaming, general-purpose PRNG
+ * 
+ * Advantages: Excellent quality, very long period, fast generation
+ *             Jump function available for parallel streams
+ * 
+ * Usage: Initialize state with stb_sxoshiro512() before first use
+ *        State is modified with each call
+ * 
+ * Note: Not cryptographically secure
+ *       For bounded integers, use stb_xoshiro512_bounded()
+ * 
+ * Reference: Blackman, D., & Vigna, S. (2018). Scrambled linear pseudorandom
+ *            number generators. arXiv:1805.01407
+ */
 STB_EXTERN uint64_t stb_xoshiro512(uint64_t *s);
 
-/* stb_xoshiro512_bounded returns a uniformly distributed interger, r, in the range [0, n). */
+/* xoshiro512** bounded uniform integer
+ * 
+ * Purpose: Generates unbiased random integer in range [0, n)
+ * 
+ * Algorithm: Lemire's nearly divisionless method (2019) for unbiased sampling
+ *            Rejection sampling to eliminate modulo bias
+ * 
+ * Inputs:
+ *   s - pointer to xoshiro512 state (modified in-place)
+ *   n - upper bound (exclusive), must be > 0
+ * 
+ * Returns: Random integer uniformly distributed in [0, n-1]
+ * 
+ * Applications: Array indexing, random selection, discrete sampling
+ * 
+ * Advantage: No modulo bias (unlike naive mod operation)
+ *            Fast for most values of n
+ * 
+ * Note: For n = 0, returns full 64-bit random value
+ *       Uses rejection for bias elimination (rare retries)
+ * 
+ * Reference: Lemire, D. (2019). Fast random integer generation in an interval.
+ *            ACM Transactions on Modeling and Computer Simulation, 29(1), 1-12.
+ */
 STB_EXTERN uint64_t stb_xoshiro512_bounded(uint64_t *s, uint64_t n);
 
-/* PCG-XSH-RR PRNG with 64-bit state and 32-bit output */
-STB_EXTERN uint32_t stb_pcg32(uint64_t *s);
-
-/* Seed the pcg32 PRNG */
+/* Initialize PCG32 state
+ * 
+ * Purpose: Seeds the PCG32 generator
+ * 
+ * Input:
+ *   seed - 64-bit seed value
+ * 
+ * Returns: Initial 64-bit state for PCG32 generator
+ * 
+ * Usage: state = stb_spcg32(seed);
+ *        value = stb_pcg32(&state);
+ */
 STB_EXTERN uint64_t stb_spcg32(uint64_t seed);
 
-/* stb_pcg32_bounded returns a uniformly distributed integer, r, in the range [0, n). */
+/* PCG-XSH-RR pseudo-random number generator
+ * 
+ * Purpose: Fast, high-quality 32-bit PRNG with 64-bit state
+ * 
+ * Algorithm: PCG-XSH-RR variant by O'Neill (2014)
+ *            Permuted Congruential Generator with XOR-shift and random rotation
+ * Properties: Period = 2^64, excellent statistical quality, 32-bit output
+ * 
+ * Input:
+ *   s - pointer to 64-bit state (modified in-place)
+ * 
+ * Returns: 32-bit pseudo-random integer uniformly distributed in [0, 2^32-1]
+ * 
+ * Applications: General-purpose PRNG, simulations, gaming, sampling
+ * 
+ * Advantages: Excellent statistical quality (passes TestU01 BigCrush)
+ *             Small state size (64 bits), very fast
+ *             Better quality than LCG, Xorshift, MT19937 in many tests
+ * 
+ * Usage: Initialize state with stb_spcg32() before first use
+ *        Alternatively initialize directly: uint64_t state = initial_seed;
+ * 
+ * Note: Not cryptographically secure
+ *       For bounded integers, use stb_pcg32_bounded()
+ *       For floating-point [0,1), use stb_pcg32_uniform()
+ * 
+ * Reference: O'Neill, M. E. (2014). PCG: A family of simple fast space-efficient
+ *            statistically good algorithms for random number generation.
+ *            Harvey Mudd College Technical Report HMC-CS-2014-0905.
+ */
+STB_EXTERN uint32_t stb_pcg32(uint64_t *s);
+
+/* PCG32 bounded uniform integer
+ * 
+ * Purpose: Generates unbiased random integer in range [0, n)
+ * 
+ * Algorithm: Lemire's nearly divisionless method for unbiased sampling
+ *            Eliminates modulo bias via rejection sampling
+ * 
+ * Inputs:
+ *   s - pointer to PCG32 state (modified in-place)
+ *   n - upper bound (exclusive), must be > 0
+ * 
+ * Returns: Random integer uniformly distributed in [0, n-1]
+ * 
+ * Applications: Dice rolls, card shuffling, random selection, array indexing
+ * 
+ * Advantage: Unbiased (no modulo bias)
+ *            Efficient for most n values
+ * 
+ * Note: For n = 0, returns full 32-bit random value
+ *       Rare retries ensure perfect uniformity
+ */
 STB_EXTERN uint32_t stb_pcg32_bounded(uint64_t *s, uint32_t n);
 
+/* Uniform random number in [0, 1)
+ * 
+ * Purpose: Generates random floating-point number uniformly distributed in [0, 1)
+ * 
+ * Method: Converts 32-bit PCG output to double precision float
+ *         Uses 52-bit mantissa for maximum precision
+ * 
+ * Input:
+ *   seed - pointer to PCG32 state (modified in-place)
+ * 
+ * Returns: Double-precision float uniformly distributed in [0.0, 1.0)
+ * 
+ * Applications: Probability simulations, accept-reject sampling, random decisions
+ * 
+ * Precision: 2^-52 ≈ 2.22e-16 (double precision)
+ * 
+ * Usage: Foundation for other distributions (exponential, normal, etc.)
+ *        p = stb_pcg32_uniform(&seed);
+ *        if (p < 0.5) { ... }  // happens 50% of time
+ * 
+ * Note: Never returns exactly 1.0 (returns values in [0, 1))
+ *       For integers in range, use stb_pcg32_bounded() instead
+ */
 STB_EXTERN double stb_pcg32_uniform(uint64_t *seed);
 
-// Gaussian (normal) random sample with mean 0 and standard deviation 1 from
-// Knuth and Marsaglia and Bray, ``A Convenient Method for Generating Normal Variables''
+/* Standard normal (Gaussian) random variate
+ * 
+ * Purpose: Generates random sample from standard normal distribution N(0, 1)
+ * 
+ * Statistical distribution: Normal/Gaussian with μ = 0, σ = 1
+ * Algorithm: Marsaglia polar method (Knuth, 1997)
+ *            Efficient rejection-based Box-Muller transformation
+ * 
+ * Input:
+ *   seed - pointer to PCG32 state (modified in-place)
+ * 
+ * Returns: Random value from standard normal distribution
+ *          Mean = 0, standard deviation = 1
+ * 
+ * Applications: Simulating normally distributed data, Monte Carlo methods,
+ *               generating random noise, statistical simulations
+ * 
+ * Properties: Symmetric around 0, ~68% of values in [-1, 1]
+ *             ~95% in [-2, 2], ~99.7% in [-3, 3]
+ * 
+ * Usage: For custom mean/std, use stb_pcg32_gauss_msd()
+ *        For non-negative only, consider Chi-square or Gamma
+ * 
+ * Note: Uses rejection sampling (efficient, ~1.27 uniforms per output)
+ *       Suitable for general statistical work, not cryptographic
+ * 
+ * Reference: Marsaglia, G., & Bray, T. A. (1964). A convenient method for
+ *            generating normal variables. SIAM Review, 6(3), 260-264.
+ */
 STB_EXTERN double stb_pcg32_gauss(uint64_t *seed);
 
-// Gaussian (normal) random sample with specified mean and standard deviation
+/* Normal (Gaussian) random variate with specified parameters
+ * 
+ * Purpose: Generates random sample from normal distribution N(μ, σ²)
+ * 
+ * Statistical distribution: Normal/Gaussian with custom mean and standard deviation
+ * Method: Transforms standard normal via: X = μ + σ×Z where Z ~ N(0,1)
+ * 
+ * Inputs:
+ *   seed  - pointer to PCG32 state (modified in-place)
+ *   mean  - desired mean (μ, location parameter)
+ *   stdev - desired standard deviation (σ > 0, scale parameter)
+ * 
+ * Returns: Random value from N(mean, stdev²) distribution
+ * 
+ * Applications: Modeling measurement errors, natural phenomena,
+ *               adding noise to signals, financial modeling
+ * 
+ * Usage example:
+ *   double temp = stb_pcg32_gauss_msd(&seed, 20.0, 2.5);  // Mean=20°C, SD=2.5°C
+ * 
+ * Note: For mean=0, stdev=1, equivalent to stb_pcg32_gauss()
+ */
 STB_EXTERN double stb_pcg32_gauss_msd(uint64_t *seed, double mean, double stdev);
 
-// Implementation based on "A Simple Method for Generating Gamma Variables"
-// by George Marsaglia and Wai Wan Tsang.  ACM Transactions on Mathematical Software
-// Vol 26, No 3, September 2000, pages 363-372.
-// shape (alpha)  and scale (lambda)
+/* Gamma distribution random variate
+ * 
+ * Purpose: Generates random sample from Gamma distribution
+ * 
+ * Statistical distribution: Gamma(α, λ) where α=shape, λ=scale
+ * PDF: f(x) = (1/(Γ(α)×λ^α)) × x^(α-1) × e^(-x/λ) for x > 0
+ * Algorithm: Marsaglia-Tsang method (2000) for shape > 1
+ *            For shape < 1, uses transformation method
+ * 
+ * Inputs:
+ *   seed  - pointer to PCG32 state (modified in-place)
+ *   shape - shape parameter α (α > 0, also called k)
+ *   scale - scale parameter λ (λ > 0, also called θ)
+ * 
+ * Returns: Random value from Gamma(shape, scale) distribution (x ≥ 0)
+ * 
+ * Properties: Mean = α×λ, Variance = α×λ²
+ *             For α=1: exponential distribution
+ *             For α=n/2, λ=2: Chi-square with n degrees of freedom
+ * 
+ * Applications: Modeling waiting times, rainfall, insurance claims,
+ *               Bayesian statistics (conjugate prior), queuing theory
+ * 
+ * Special cases:
+ *   Gamma(1, λ) = Exponential(1/λ)
+ *   Gamma(n/2, 2) = Chi-square(n)
+ *   Gamma(n, 1) = Erlang(n)
+ * 
+ * Note: Some literature uses rate β = 1/λ instead of scale
+ *       Algorithm is efficient for all shape values
+ * 
+ * Reference: Marsaglia, G., & Tsang, W. W. (2000). A simple method for
+ *            generating gamma variables. ACM TOMS, 26(3), 363-372.
+ */
 STB_EXTERN double stb_pcg32_gamma(uint64_t *seed, double shape, double scale);
 
+/* Standard exponential random variate
+ * 
+ * Purpose: Generates random sample from standard exponential distribution (rate=1)
+ * 
+ * Statistical distribution: Exponential with rate λ = 1 (mean = 1)
+ * PDF: f(x) = e^(-x) for x ≥ 0
+ * Method: Inverse transform: X = -ln(U) where U ~ Uniform(0,1)
+ * 
+ * Input:
+ *   seed - pointer to PCG32 state (modified in-place)
+ * 
+ * Returns: Random value from Exponential(1) distribution (x ≥ 0)
+ * 
+ * Properties: Mean = 1, Variance = 1, Memoryless property
+ * 
+ * Applications: Time between Poisson events, component lifetimes,
+ *               radioactive decay, service times in queuing
+ * 
+ * Usage: For custom mean, use stb_pcg32_exponential_m()
+ *        Related to Gamma(1, scale) and geometric distributions
+ * 
+ * Note: Memoryless: P(X > s+t | X > s) = P(X > t)
+ */
 STB_EXTERN double stb_pcg32_exponential(uint64_t *seed);
 
-// exponential random sample with specified mean
+/* Exponential random variate with specified mean
+ * 
+ * Purpose: Generates random sample from exponential distribution with custom mean
+ * 
+ * Statistical distribution: Exponential with specified mean (rate = 1/mean)
+ * PDF: f(x) = (1/mean) × e^(-x/mean) for x ≥ 0
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   mean - desired mean (mean > 0, equals 1/rate)
+ * 
+ * Returns: Random value from Exponential distribution (x ≥ 0)
+ * 
+ * Properties: Mean = mean, Variance = mean²
+ * 
+ * Applications: Time to next event, survival analysis, reliability engineering
+ * 
+ * Usage example:
+ *   double wait_time = stb_pcg32_exponential_m(&seed, 5.0);  // Mean wait = 5 minutes
+ */
 STB_EXTERN double stb_pcg32_exponential_m(uint64_t *seed, double mean);
 
-// Knuth: mean (lambda)
+/* Poisson distribution random variate
+ * 
+ * Purpose: Generates random count from Poisson distribution
+ * 
+ * Statistical distribution: Poisson(λ) where λ is the rate/mean
+ * PMF: P(X=k) = (λ^k × e^(-λ)) / k! for k = 0, 1, 2, ...
+ * Algorithm: Knuth's method for small λ, transformed rejection for large λ
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   mean - rate parameter λ (λ > 0, expected number of events)
+ * 
+ * Returns: Random non-negative integer from Poisson(mean) distribution
+ * 
+ * Properties: Mean = λ, Variance = λ (variance equals mean)
+ *             Discrete distribution on {0, 1, 2, 3, ...}
+ * 
+ * Applications: Modeling rare events, count data, arrivals in queuing,
+ *               photon detection, mutations, web traffic
+ * 
+ * Examples: Number of calls to call center per hour
+ *           Number of mutations in DNA sequence
+ *           Number of particles detected in time interval
+ * 
+ * Note: For large λ (>30), approximately normal: N(λ, λ)
+ *       Related to exponential (time between events)
+ * 
+ * Reference: Knuth, D. E. (1997). The Art of Computer Programming,
+ *            Volume 2: Seminumerical Algorithms (3rd ed.).
+ */
 STB_EXTERN double stb_pcg32_poisson(uint64_t *seed, const double mean);
 
+/* Negative binomial distribution random variate
+ * 
+ * Purpose: Generates random count from negative binomial distribution
+ * 
+ * Statistical distribution: NegBinom(r, p) - number of failures before r successes
+ * Method: Gamma-Poisson mixture (more numerically stable)
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   size - number of successes r (r > 0, dispersion parameter)
+ *   prob - success probability p (0 < p ≤ 1)
+ * 
+ * Returns: Random non-negative integer (number of failures)
+ * 
+ * Properties: Mean = r(1-p)/p, Variance = r(1-p)/p²
+ *             Overdispersed relative to Poisson (variance > mean)
+ * 
+ * Applications: Modeling overdispersed count data, RNA-seq analysis,
+ *               insurance claims, accident counts
+ * 
+ * Note: For large r, approaches Poisson
+ *       Alternative parameterization uses mean: stb_pcg32_nbinom_mu()
+ */
 STB_EXTERN double stb_pcg32_nbinom(uint64_t *seed, double size, double prob);
 
+/* Chi-square distribution random variate
+ * 
+ * Purpose: Generates random sample from Chi-square distribution
+ * 
+ * Statistical distribution: χ²(ν) with ν degrees of freedom
+ * Method: Uses Gamma(ν/2, 2) equivalence
+ * 
+ * Inputs:
+ *   seed               - pointer to PCG32 state (modified in-place)
+ *   degrees_of_freedom - degrees of freedom ν (ν > 0)
+ * 
+ * Returns: Random value from χ²(ν) distribution (x ≥ 0)
+ * 
+ * Properties: Mean = ν, Variance = 2ν
+ *             Sum of ν squared standard normals
+ * 
+ * Applications: Goodness-of-fit tests, variance estimation,
+ *               hypothesis testing, confidence intervals for variance
+ * 
+ * Note: Equivalent to Gamma(ν/2, 2)
+ */
 STB_EXTERN double stb_pcg32_chisquare(uint64_t *seed, double degrees_of_freedom);
 
+/* Inverse gamma distribution random variate
+ * 
+ * Purpose: Generates random sample from inverse gamma distribution
+ * 
+ * Statistical distribution: InvGamma(α, β) where α=shape, β=scale
+ * Method: Reciprocal of Gamma(α, 1/β)
+ * 
+ * Inputs:
+ *   seed  - pointer to PCG32 state (modified in-place)
+ *   shape - shape parameter α (α > 0)
+ *   scale - scale parameter β (β > 0)
+ * 
+ * Returns: Random value from InvGamma(shape, scale) distribution (x > 0)
+ * 
+ * Applications: Bayesian statistics (conjugate prior for variance),
+ *               hierarchical models, scale parameter estimation
+ * 
+ * Note: If X ~ Gamma(α, β), then 1/X ~ InvGamma(α, 1/β)
+ */
 STB_EXTERN double stb_pcg32_invgamma(uint64_t *seed, double shape, double scale);
 
+/* Beta distribution random variate
+ * 
+ * Purpose: Generates random sample from Beta distribution on [0, 1]
+ * 
+ * Statistical distribution: Beta(α, β) where α, β > 0 are shape parameters
+ * Method: Ratio of two Gamma variates
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   a    - first shape parameter α (α > 0)
+ *   b    - second shape parameter β (β > 0)
+ * 
+ * Returns: Random value from Beta(α, β) distribution, 0 ≤ x ≤ 1
+ * 
+ * Properties: Mean = α/(α+β), Variance = αβ/[(α+β)²(α+β+1)]
+ *             Bounded to [0, 1]
+ * 
+ * Shape interpretation:
+ *   α=β=1: Uniform(0,1)
+ *   α=β>1: Symmetric, bell-shaped
+ *   α<β: Skewed toward 0
+ *   α>β: Skewed toward 1
+ * 
+ * Applications: Bayesian inference (conjugate prior for binomial),
+ *               modeling proportions, probabilities, percentages
+ * 
+ * Note: X ~ Beta(α,β) implies 1-X ~ Beta(β,α)
+ */
 STB_EXTERN double stb_pcg32_beta(uint64_t *seed, double a, double b);
 
+/* Negative binomial distribution (mean parameterization)
+ * 
+ * Purpose: Generates negative binomial random variate using mean parameterization
+ * 
+ * Statistical distribution: NegBinom with mean μ and dispersion parameter r
+ * Method: Gamma-Poisson mixture
+ * 
+ * Inputs:
+ *   seed - pointer to PCG32 state (modified in-place)
+ *   size - dispersion parameter r (r > 0, smaller = more overdispersion)
+ *   mu   - mean parameter μ (μ > 0)
+ * 
+ * Returns: Random non-negative integer
+ * 
+ * Properties: Mean = μ, Variance = μ + μ²/r
+ * 
+ * Applications: RNA-seq differential expression (DESeq2, edgeR),
+ *               overdispersed count data modeling
+ * 
+ * Note: As r→∞, approaches Poisson(μ)
+ *       Common in genomics for modeling read counts
+ */
 STB_EXTERN double stb_pcg32_nbinom_mu(uint64_t *seed, double size, double mu);
 
 /**
- * Confidence Sequence Method.
- *
- * See "A simple method for implementing Monte Carlo tests,"
- * Ding, Gandy, and Hahn, 2017 (https://arxiv.org/abs/1611.01675).
- *
- * Given n trials and s successes, can we conclude that the success rate
- * differs from alpha with exp(log_eps) false positive rate?
- *
- * Output the current log confidence level in OUT_log_level if non-NULL.
+ * Confidence Sequence Method (CSM) for Monte Carlo stopping
+ * 
+ * Purpose: Determines when to stop Monte Carlo simulations with statistical confidence
+ *          Provides rigorous false positive control for sequential testing
+ * 
+ * Method: Confidence sequences (time-uniform confidence intervals)
+ *         Based on anytime-valid p-values that control error across all stopping times
+ * 
+ * Statistical framework:
+ *   - Tests if empirical success rate differs from expected rate (alpha)
+ *   - Provides Type I error control at any stopping point (not just pre-determined n)
+ *   - More efficient than fixed-sample methods (can stop early)
+ * 
+ * Inputs:
+ *   n       - number of trials performed so far
+ *   alpha   - expected success rate under null hypothesis (0 < alpha < 1)
+ *   s       - number of successes observed
+ *   log_eps - log of desired false positive rate (typically log(0.05) ≈ -2.996)
+ * 
+ * Outputs:
+ *   OUT_log_level - current log confidence level (optional, can be NULL)
+ *                   More negative = stronger evidence against null
+ * 
+ * Returns: 1 if we can reject null hypothesis (success rate differs from alpha)
+ *          0 if we cannot reject (need more samples or rate matches alpha)
+ * 
+ * Interpretation:
+ *   - Return value 1: Observed rate significantly different from alpha
+ *   - Return value 0: Cannot conclude difference yet, may need more samples
+ *   - OUT_log_level < log_eps: reject null hypothesis
+ * 
+ * Applications:
+ *   - Stopping Monte Carlo simulations when confidence achieved
+ *   - Sequential hypothesis testing
+ *   - A/B testing with early stopping
+ *   - Adaptive clinical trials
+ *   - Quality control with sequential sampling
+ * 
+ * Advantages:
+ *   - Valid at any stopping time (no need to fix n in advance)
+ *   - Can stop early if signal is strong
+ *   - Rigorous Type I error control
+ *   - More efficient than fixed-sample tests
+ * 
+ * Example:
+ *   // Monte Carlo simulation with adaptive stopping
+ *   uint64_t trials = 0, successes = 0;
+ *   double expected_rate = 0.5;
+ *   double log_fpr = log(0.05);  // 5% false positive rate
+ *   double log_conf;
+ *   
+ *   while (trials < MAX_TRIALS) {
+ *       int result = run_simulation();
+ *       trials++;
+ *       if (result) successes++;
+ *       
+ *       // Check if we can stop
+ *       if (stb_csm(trials, expected_rate, successes, log_fpr, &log_conf)) {
+ *           printf("Significant difference detected after %llu trials\n", trials);
+ *           printf("Success rate: %.4f (expected: %.4f)\n",
+ *                  (double)successes/trials, expected_rate);
+ *           break;
+ *       }
+ *   }
+ * 
+ * Reference: Ding, Y., Gandy, A., & Hahn, G. (2017). A simple method for
+ *            implementing Monte Carlo tests. arXiv:1611.01675.
  */
 STB_EXTERN int stb_csm(uint64_t n, double alpha, uint64_t s, double log_eps, double *OUT_log_level);
 
-/* returns the number of combinations of t out of n and returns a matrix (2d array) of them
- * uses Knuth Algorithm T (section 2.7.1.3 from The Art of Computer Programming)
+/* Generate all combinations of t elements from n elements
+ * 
+ * Purpose: Enumerates all ways to choose t items from n items (n choose t)
+ *          Returns both the count and all actual combinations
+ * 
+ * Algorithm: Knuth's Algorithm T (The Art of Computer Programming, Vol. 4A)
+ *            Efficiently generates combinations in lexicographic order
+ * 
+ * Mathematical: C(n,t) = n! / (t!(n-t)!) combinations
+ *   - C(5,2) = 10: {0,1}, {0,2}, {0,3}, {0,4}, {1,2}, {1,3}, {1,4}, {2,3}, {2,4}, {3,4}
+ *   - C(10,3) = 120
+ *   - C(20,10) = 184,756
+ * 
+ * Inputs:
+ *   n - size of set to choose from (elements numbered 0 to n-1)
+ *   t - number of elements to choose (0 ≤ t ≤ n)
+ * 
+ * Outputs:
+ *   combinations - pointer to 2D array of all combinations (C(n,t) × t)
+ *                  Each row is one combination
+ *                  Must be freed by caller (single free() call)
+ * 
+ * Returns: Number of combinations = C(n,t)
+ * 
+ * Memory: Allocates C(n,t) × t integers
+ *         Can be large! C(30,15) = 155M requires ~2.5GB
+ * 
+ * Applications:
+ *   - Enumerating all possible subsets
+ *   - Feature selection (try all t-feature combinations)
+ *   - Multiple testing (all pairwise comparisons)
+ *   - Combinatorial optimization
+ *   - Graph theory (all edges, all cliques)
+ * 
+ * Bioinformatics applications:
+ *   - Gene set analysis (all k-gene combinations)
+ *   - Motif finding (all possible nucleotide combinations)
+ *   - Protein interaction networks (all protein pairs)
+ *   - SNP analysis (all marker combinations)
+ * 
+ * Example:
+ *   // Find all pairs of features
+ *   int **pairs;
+ *   int n_pairs = stb_combinations(10, 2, &pairs);
+ *   
+ *   printf("There are %d pairs from 10 features:\n", n_pairs);  // 45
+ *   for (int i = 0; i < n_pairs; i++) {
+ *       printf("Pair %d: feature %d and feature %d\n", 
+ *              i, pairs[i][0], pairs[i][1]);
+ *   }
+ *   
+ *   free(pairs);  // Single free for entire array
+ * 
+ * Warning: Grows very rapidly with n and t
+ *          C(100,50) = 10²⁹ - computationally infeasible
+ *          Check C(n,t) before calling to ensure feasibility
+ * 
+ * Complexity:
+ *   - Time: O(C(n,t) × t) to generate all combinations
+ *   - Space: O(C(n,t) × t) to store results
+ * 
+ * Note: Uses stb_allocmat for efficient single-malloc allocation
+ *       Combinations are 0-indexed (elements 0 to n-1)
+ *       Result can be freed with single free() call
+ * 
+ * Reference: Knuth, D. E. (2011). The Art of Computer Programming,
+ *            Volume 4A: Combinatorial Algorithms, Section 7.2.1.3.
  */
 STB_EXTERN int stb_combinations(int n, int t, int ***combinations);
 
@@ -880,206 +2284,1075 @@ STB_EXTERN char **stb_parse_csv(const char *line, const char delim, int *nrfield
 STB_EXTERN int stb_count_fields(const char *line, const char delim);
 STB_EXTERN void stb_free_csv_line(char **parsed);
 
-/* Simple Matrix Function */
+/* ============================================================================
+ * MATRIX OPERATIONS
+ * ============================================================================
+ * 
+ * Purpose: Comprehensive matrix manipulation functions for statistical computations
+ * 
+ * The STB_MAT structure provides a convenient wrapper around 2D double arrays with
+ * automatic memory management and dimension tracking. All matrix operations follow
+ * standard linear algebra conventions.
+ * 
+ * Applications:
+ *   - Linear and logistic regression (design matrices)
+ *   - Principal Component Analysis (covariance matrices)
+ *   - Data preprocessing and normalization
+ *   - Dimensionality reduction
+ *   - Bioinformatics: gene expression matrices, count tables
+ * 
+ * Memory management: Use stb_new_matrix() to allocate and stb_free_matrix() to
+ * deallocate. Output matrices (**D parameters) are allocated by the functions
+ * and must be freed by the caller.
+ */
 
-/* Matrix structure */
+/* Matrix structure
+ * 
+ * Structure: Encapsulates a 2D array with dimensions
+ * 
+ * Fields:
+ *   data    - 2D array of doubles (data[row][column])
+ *   rows    - number of rows in the matrix
+ *   columns - number of columns in the matrix
+ * 
+ * Note: Internally uses contiguous memory allocation for better cache performance
+ */
 typedef struct {
 	double **data;
 	int rows;
 	int columns;
 } STB_MAT;
 
-/* Print a matrix */
-STB_EXTERN void stb_matrix_print(STB_MAT *matrix);
-
-/* Free a matrix */
-STB_EXTERN void stb_free_matrix(STB_MAT *matrix);
-
-/* Return a new matrix of rowx column size initialized with 0 */
+/* Allocate a new zero-initialized matrix
+ * 
+ * Purpose: Creates a new matrix with all elements initialized to 0.0
+ * 
+ * Inputs:
+ *   rows    - number of rows (must be > 0)
+ *   columns - number of columns (must be > 0)
+ * 
+ * Returns: Pointer to newly allocated STB_MAT structure
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Example:
+ *   STB_MAT *A = stb_new_matrix(100, 50);  // 100 samples × 50 features
+ *   // ... use matrix ...
+ *   stb_free_matrix(A);
+ */
 STB_EXTERN STB_MAT *stb_new_matrix(int rows, int columns);
 
-/* Retrn an identity matrix of rowxcolumn size */
+/* Free matrix memory
+ * 
+ * Purpose: Deallocates all memory associated with a matrix
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to free
+ * 
+ * Note: Safe to call on NULL pointer (no operation performed)
+ *       Sets internal pointers to NULL after freeing
+ */
+STB_EXTERN void stb_free_matrix(STB_MAT *matrix);
+
+/* Print matrix to standard output
+ * 
+ * Purpose: Displays matrix contents in human-readable format
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to print
+ * 
+ * Format: Scientific notation with 6 decimal places per element
+ *         Each row on a separate line, elements tab-separated
+ * 
+ * Usage: Primarily for debugging and small matrix inspection
+ */
+STB_EXTERN void stb_matrix_print(STB_MAT *matrix);
+
+/* Create an identity matrix
+ * 
+ * Purpose: Generates an identity matrix I where I[i][i] = 1 and I[i][j] = 0 for i ≠ j
+ * 
+ * Mathematical: For square matrix (rows = columns), this is the multiplicative identity
+ *               For rectangular matrices, 1s appear on the main diagonal
+ * 
+ * Inputs:
+ *   rows    - number of rows
+ *   columns - number of columns
+ * 
+ * Returns: Pointer to newly allocated identity matrix
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Initialization of transformation matrices
+ *   - Regularization in regression (I added to X'X for ridge regression)
+ *   - Testing matrix inversion and multiplication
+ * 
+ * Example:
+ *   STB_MAT *I = stb_identity_matrix(3, 3);  // 3×3 identity
+ *   // I->data = [[1,0,0], [0,1,0], [0,0,1]]
+ */
 STB_EXTERN STB_MAT *stb_identity_matrix(int rows, int columns);
 
-/* Return a copy of a matrix */
+/* Duplicate a matrix
+ * 
+ * Purpose: Creates a deep copy of an existing matrix
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to duplicate
+ * 
+ * Returns: Pointer to newly allocated copy with identical dimensions and values
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Note: Performs deep copy - modifications to the copy do not affect the original
+ * 
+ * Usage: When you need to preserve original data during transformations
+ *        or perform multiple operations on the same starting data
+ */
 STB_EXTERN STB_MAT *stb_dup_matrix(STB_MAT *matrix);
 
-/* Fill a matrix with a value */
+/* Fill matrix with a constant value
+ * 
+ * Purpose: Sets all elements of a matrix to the same value (in-place operation)
+ * 
+ * Inputs:
+ *   matrix - pointer to STB_MAT structure to fill
+ *   value  - scalar value to assign to all elements
+ * 
+ * Note: Modifies the input matrix directly
+ * 
+ * Applications:
+ *   - Initialize design matrices with 1s (intercept column)
+ *   - Reset matrices between iterations
+ *   - Create constant matrices for testing
+ */
 STB_EXTERN void stb_fill_matrix(STB_MAT *matrix, double value);
 
-/* Join two matrixes together and store the result in D. Example:
- * A |   B   =    D 
- *
- * 1 | 1 0 0   1 1 0 0
- * 1 | 0 1 0 = 1 0 1 0
- * 1 | 0 0 1   1 0 0 1
+/* Horizontal matrix concatenation
+ * 
+ * Purpose: Joins two matrices side-by-side (column-wise concatenation)
+ * 
+ * Mathematical: D = [A | B] where D has A's columns followed by B's columns
+ * 
+ * Inputs:
+ *   A - first matrix (m × n₁)
+ *   B - second matrix (m × n₂)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × (n₁ + n₂))
+ * 
+ * Requirements: A and B must have the same number of rows
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Creating design matrices (add intercept column to predictors)
+ *   - Combining feature sets
+ *   - Building augmented matrices for linear systems
+ * 
+ * Example:
+ *   STB_MAT *ones = stb_new_matrix(100, 1);  // Intercept column
+ *   stb_fill_matrix(ones, 1.0);
+ *   STB_MAT *predictors = ...; // 100 × 5 feature matrix
+ *   STB_MAT *design;
+ *   stb_join_matrix(ones, predictors, &design);  // 100 × 6 design matrix
  */
 STB_EXTERN void stb_join_matrix(STB_MAT *A, STB_MAT *B, STB_MAT **D);
 
-/* Multiply two matrixes A and B, store the result in D */
+/* Matrix multiplication
+ * 
+ * Purpose: Computes the matrix product of two matrices
+ * 
+ * Mathematical: D = A × B where D[i][j] = Σₖ A[i][k] × B[k][j]
+ * 
+ * Inputs:
+ *   A - first matrix (m × n)
+ *   B - second matrix (n × p)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × p)
+ * 
+ * Requirements: Number of columns in A must equal number of rows in B
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Complexity: O(mnp) time, O(mp) space
+ * 
+ * Applications:
+ *   - Linear regression: (X'X)⁻¹X'y for coefficient estimation
+ *   - Transformation of data: Y = XW
+ *   - Covariance matrix computation: Σ = (1/n)X'X
+ *   - Neural network forward propagation
+ * 
+ * Example:
+ *   // Compute X'X for normal equations
+ *   STB_MAT *Xt, *XtX;
+ *   stb_transpose_matrix(X, &Xt);
+ *   stb_matrix_multiply(Xt, X, &XtX);
+ */
 STB_EXTERN void stb_matrix_multiply(STB_MAT *A, STB_MAT *B, STB_MAT **D);
 
-/* Substract two equal sized matrixes A and B, store the result in D */
-STB_EXTERN void stb_matrix_subs(STB_MAT *A, STB_MAT *B, STB_MAT **D);
-
-/* Add two equal sized matrixes together A and B, store the result in D */
+/* Matrix addition
+ * 
+ * Purpose: Element-wise addition of two matrices
+ * 
+ * Mathematical: D = A + B where D[i][j] = A[i][j] + B[i][j]
+ * 
+ * Inputs:
+ *   A - first matrix (m × n)
+ *   B - second matrix (m × n)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × n)
+ * 
+ * Requirements: A and B must have identical dimensions
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Combining data from multiple sources
+ *   - Gradient accumulation in optimization
+ *   - Batch normalization
+ */
 STB_EXTERN void stb_matrix_add(STB_MAT *A, STB_MAT *B, STB_MAT **D);
 
-/* Transopse matrix A  and store it in Atransposed */
+/* Matrix subtraction
+ * 
+ * Purpose: Element-wise subtraction of two matrices
+ * 
+ * Mathematical: D = A - B where D[i][j] = A[i][j] - B[i][j]
+ * 
+ * Inputs:
+ *   A - first matrix (m × n)
+ *   B - second matrix (m × n)
+ * 
+ * Outputs:
+ *   D - pointer to receive result matrix (m × n)
+ * 
+ * Requirements: A and B must have identical dimensions
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Applications:
+ *   - Computing residuals: R = Y - Ŷ
+ *   - Difference matrices in paired analysis
+ *   - Gradient descent updates
+ */
+STB_EXTERN void stb_matrix_subs(STB_MAT *A, STB_MAT *B, STB_MAT **D);
+
+/* Matrix transpose
+ * 
+ * Purpose: Reflects a matrix over its main diagonal
+ * 
+ * Mathematical: Aᵀ where Aᵀ[i][j] = A[j][i]
+ * 
+ * Inputs:
+ *   A - input matrix (m × n)
+ * 
+ * Outputs:
+ *   Atransposed - pointer to receive transposed matrix (n × m)
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Properties: (Aᵀ)ᵀ = A, (AB)ᵀ = BᵀAᵀ
+ * 
+ * Applications:
+ *   - Normal equations: β = (X'X)⁻¹X'y
+ *   - Covariance matrix: Σ = X'X / (n-1)
+ *   - Converting between row and column vectors
+ *   - Gram matrix computation
+ * 
+ * Example:
+ *   // Transpose data matrix for column-wise operations
+ *   STB_MAT *data_t;
+ *   stb_transpose_matrix(data, &data_t);  // genes × samples → samples × genes
+ */
 STB_EXTERN void stb_transpose_matrix(STB_MAT *A, STB_MAT **Atransposed);
 
-/* Invert matrix A and store it in Ainverted*/
+/* Matrix inversion
+ * 
+ * Purpose: Computes the multiplicative inverse of a square matrix
+ * 
+ * Mathematical: A⁻¹ where A × A⁻¹ = A⁻¹ × A = I
+ * 
+ * Method: LU decomposition with partial pivoting
+ * 
+ * Inputs:
+ *   A - input matrix (n × n, must be non-singular)
+ * 
+ * Outputs:
+ *   Ainverted - pointer to receive inverted matrix (n × n)
+ * 
+ * Requirements: A must be square and non-singular (det(A) ≠ 0)
+ * 
+ * Memory: Allocates new matrix, caller must free using stb_free_matrix()
+ * 
+ * Complexity: O(n³) time, O(n²) space
+ * 
+ * Applications:
+ *   - Solving linear systems: x = A⁻¹b
+ *   - Linear regression: β = (X'X)⁻¹X'y
+ *   - Computing covariance matrix inverses
+ *   - Statistical hypothesis testing (variance-covariance matrices)
+ * 
+ * Note: For large matrices, consider using specialized linear algebra libraries
+ *       For nearly singular matrices, use regularization (ridge regression)
+ *       Numerical stability issues may arise for ill-conditioned matrices
+ * 
+ * Example:
+ *   // Solve linear regression coefficients
+ *   STB_MAT *Xt, *XtX, *XtX_inv, *Xty, *beta;
+ *   stb_transpose_matrix(X, &Xt);
+ *   stb_matrix_multiply(Xt, X, &XtX);
+ *   stb_invert_matrix(XtX, &XtX_inv);
+ *   stb_matrix_multiply(Xt, y, &Xty);
+ *   stb_matrix_multiply(XtX_inv, Xty, &beta);
+ */
 STB_EXTERN void stb_invert_matrix(STB_MAT *A, STB_MAT **Ainverted);
 
-/* Multiply an entire matrix by a single value */
+/* Scalar multiplication of matrix
+ * 
+ * Purpose: Multiplies every element of a matrix by a scalar value (in-place)
+ * 
+ * Mathematical: A ← k × A where A[i][j] ← k × A[i][j] for all i, j
+ * 
+ * Inputs:
+ *   A     - matrix to multiply (m × n)
+ *   value - scalar multiplier
+ * 
+ * Note: Modifies the input matrix directly
+ * 
+ * Applications:
+ *   - Scaling data to different ranges
+ *   - Normalization (divide by sum or standard deviation)
+ *   - Learning rate application in gradient descent
+ *   - Unit conversions
+ * 
+ * Example:
+ *   // Normalize by total sum
+ *   double total = stb_matrix_sum(A);
+ *   stb_matrix_multiply_by_value(A, 1.0 / total);
+ */
 STB_EXTERN void stb_matrix_multiply_by_value(STB_MAT *A, double value);
 
-/* Divide an entire matrix by a single value */
+/* Scalar division of matrix
+ * 
+ * Purpose: Divides every element of a matrix by a scalar value (in-place)
+ * 
+ * Mathematical: A ← A / k where A[i][j] ← A[i][j] / k for all i, j
+ * 
+ * Inputs:
+ *   A     - matrix to divide (m × n)
+ *   value - scalar divisor (must be non-zero)
+ * 
+ * Note: Modifies the input matrix directly
+ *       No checking for division by zero - caller must ensure value ≠ 0
+ * 
+ * Applications:
+ *   - Computing means (divide sum by count)
+ *   - Variance calculations: σ² = Σ(x - μ)² / (n-1)
+ *   - Normalizing by sample size
+ *   - TPM/CPM calculations in RNA-seq (divide by library size)
+ * 
+ * Example:
+ *   // Compute column means
+ *   STB_MAT *col_sums = compute_column_sums(data);
+ *   stb_matrix_divide_by_value(col_sums, data->rows);  // means
+ */
 STB_EXTERN void stb_matrix_divide_by_value(STB_MAT *A, double value);
 
-/* Returns the sum of a matrix */
+/* Sum of all matrix elements
+ * 
+ * Purpose: Computes the sum of all elements in a matrix
+ * 
+ * Mathematical: Σᵢⱼ A[i][j]
+ * 
+ * Inputs:
+ *   A - input matrix (m × n)
+ * 
+ * Returns: Sum of all elements as a double
+ * 
+ * Applications:
+ *   - Normalization (divide by total to get proportions)
+ *   - RNA-seq: library size calculation (total read counts)
+ *   - Statistics: computing grand mean
+ *   - Checking matrix properties
+ * 
+ * Example:
+ *   // Normalize count matrix to proportions
+ *   double total = stb_matrix_sum(counts);
+ *   stb_matrix_divide_by_value(counts, total);
+ */
 double stb_matrix_sum(STB_MAT *A);
 
-/* Returns a struct STB_MAT from a double matrix and the number of rows and columns */
+/* Create matrix from existing double array
+ * 
+ * Purpose: Wraps an existing 2D double array in an STB_MAT structure
+ * 
+ * Inputs:
+ *   data    - 2D array of doubles (data[row][column])
+ *   rows    - number of rows in the array
+ *   columns - number of columns in the array
+ * 
+ * Returns: Pointer to newly allocated STB_MAT structure
+ * 
+ * Memory: Only allocates the STB_MAT wrapper, NOT the data array
+ *         Caller must manage the original data array separately
+ *         Use stb_free_matrix() to free the wrapper (not the data)
+ * 
+ * Note: This is a shallow copy - modifying matrix->data affects the original array
+ * 
+ * Applications:
+ *   - Interfacing with existing data structures
+ *   - Avoiding data duplication for large arrays
+ *   - Using STB_MAT functions with externally allocated data
+ * 
+ * Example:
+ *   double **my_data = allocate_2d_array(100, 50);
+ *   // ... fill my_data ...
+ *   STB_MAT *matrix = stb_matrix_from_double(my_data, 100, 50);
+ *   stb_matrix_print(matrix);
+ *   stb_free_matrix(matrix);  // Frees wrapper only, not my_data
+ *   free_2d_array(my_data);   // Still need to free original data
+ */
 STB_EXTERN STB_MAT *stb_matrix_from_double(double **data, int rows, int columns);
 
-/* Reads a matrix from a tab seperated file.
- * The first line has two values the number of rows and the number of columns in the file.
- * The rest of the data are the actual values. Example:
- * 3	1 (3 rows and 1 column)
- * 62	
- * 66	
- * 61	
+/* Load matrix from tab-delimited file
+ * 
+ * Purpose: Reads a matrix from a structured text file
+ * 
+ * File format:
+ *   Line 1: <rows> <columns>  (tab-separated dimensions)
+ *   Lines 2-n: matrix values (tab-separated, one row per line)
+ * 
+ * Inputs:
+ *   filename - path to input file
+ * 
+ * Returns: Pointer to newly allocated STB_MAT structure containing the data
+ *          Returns NULL on file read error or format error
+ * 
+ * Memory: Caller must free using stb_free_matrix()
+ * 
+ * Example file (3 rows × 4 columns):
+ *   3	4
+ *   1.0	2.0	3.0	4.0
+ *   5.0	6.0	7.0	8.0
+ *   9.0	10.0	11.0	12.0
+ * 
+ * Applications:
+ *   - Loading gene expression matrices
+ *   - Reading count tables from RNA-seq pipelines
+ *   - Importing experimental data
+ *   - Batch processing of multiple datasets
+ * 
+ * Note: Use scientific notation for very large/small values
+ *       Missing values will cause parsing errors
+ * 
+ * Example:
+ *   STB_MAT *counts = stb_matrix_from_file("gene_counts.txt");
+ *   if (counts == NULL) {
+ *       fprintf(stderr, "Failed to load matrix\n");
+ *       exit(1);
+ *   }
+ *   // ... analyze data ...
+ *   stb_free_matrix(counts);
  */
 STB_EXTERN STB_MAT *stb_matrix_from_file(char *filename);
 
-/* Perform quantile normalization between columns without a reference
-In statistics, quantile normalization is a technique for making two distributions identical in statistical properties.
-see: https://en.wikipedia.org/wiki/Quantile_normalization
-Arrays 1 to 3, genes A to D
-A    5    4    3
-B    2    1    4
-C    3    4    6
-D    4    2    8
-Converted to STB_MAT file test.mat:
-4 3
-5 4 3
-2 1 4
-3 4 6
-4 2 8
+/* ============================================================================
+ * NORMALIZATION METHODS
+ * ============================================================================ */
 
-will become:
-5.666667E+00 5.166667E+00 2.000000E+00 
-2.000000E+00 2.000000E+00 3.000000E+00 
-3.000000E+00 5.166667E+00 4.666667E+00 
-4.666667E+00 3.000000E+00 5.666667E+00
-
-statistics:
-Min.   :2.000   Min.   :2.000   Min.   :2.000  
-1st Qu.:2.750   1st Qu.:2.750   1st Qu.:2.750  
-Median :3.833   Median :4.083   Median :3.833  
-Mean   :3.833   Mean   :3.833   Mean   :3.833  
-3rd Qu.:4.917   3rd Qu.:5.167   3rd Qu.:4.917  
-Max.   :5.667   Max.   :5.167   Max.   :5.667  
+/* Quantile normalization without reference
+ * 
+ * Purpose: Makes the distributions of multiple samples identical by forcing them
+ *          to have the same quantiles. This removes systematic differences between
+ *          samples while preserving within-sample relationships.
+ * 
+ * Statistical method: Quantile normalization (Bolstad et al., 2003)
+ * 
+ * Algorithm:
+ *   1. Rank values within each column (sample)
+ *   2. Compute mean of values at each rank across all columns
+ *   3. Replace each value with the mean of its rank
+ *   4. Reorder to match original ranks
+ * 
+ * Result: All columns have identical distributions
+ * 
+ * Inputs:
+ *   original - matrix to normalize (rows = features, columns = samples)
+ *              Matrix is modified in-place
+ *   data     - 2D array version (for stb_qnorm)
+ *   rows     - number of features
+ *   columns  - number of samples
+ * 
+ * Note: Modifies input matrix/array in-place
+ * 
+ * Applications:
+ *   - Microarray data normalization
+ *   - RNA-seq data preprocessing (across replicates)
+ *   - ChIP-seq signal normalization
+ *   - Removing batch effects in genomics
+ *   - Making datasets comparable across experiments
+ * 
+ * Assumptions:
+ *   - Majority of features are not differentially expressed
+ *   - Systematic biases affect entire distributions
+ *   - Technical variation > biological variation
+ * 
+ * Advantages:
+ *   - Simple, fast, robust
+ *   - Makes samples directly comparable
+ *   - Removes many systematic biases
+ * 
+ * Disadvantages:
+ *   - May introduce spurious correlations
+ *   - Assumes all samples should have same distribution
+ *   - Can reduce true biological differences
+ *   - Not appropriate when samples are expected to differ globally
+ * 
+ * Example (genes × samples):
+ *   Before normalization:
+ *     Gene  S1   S2   S3
+ *     A     5    4    3
+ *     B     2    1    4
+ *     C     3    4    6
+ *     D     4    2    8
+ * 
+ *   After normalization (identical distributions):
+ *     Gene  S1    S2    S3
+ *     A     5.67  5.17  2.00
+ *     B     2.00  2.00  3.00
+ *     C     3.00  5.17  4.67
+ *     D     4.67  3.00  5.67
+ * 
+ *   Statistics (all columns identical after normalization):
+ *     Min    : 2.000  2.000  2.000
+ *     1st Qu : 2.750  2.750  2.750
+ *     Median : 3.833  4.083  3.833
+ *     Mean   : 3.833  3.833  3.833
+ *     3rd Qu : 4.917  5.167  4.917
+ *     Max    : 5.667  5.167  5.667
+ * 
+ * Usage:
+ *   STB_MAT *data = stb_matrix_from_file("expression.txt");
+ *   stb_qnorm_matrix(data);  // Normalize in-place
+ *   // ... proceed with normalized data ...
+ * 
+ * Reference: Bolstad, B. M., et al. (2003). A comparison of normalization
+ *            methods for high density oligonucleotide array data based on
+ *            variance and bias. Bioinformatics, 19(2), 185-193.
+ * 
+ * See also: stb_qnorm_matrix_with_reference() for target distribution normalization
  */
 STB_EXTERN void stb_qnorm_matrix(STB_MAT *original);
 STB_EXTERN void stb_qnorm(double **data, int rows, int columns);
 
-/* RSE Normalization
- *  STB_MAT *counts_A;
- *  int n;
- * counts_A = stb_matrix_from_file(argv[1]);
+/* ============================================================================
+ * RSE NORMALIZATION (Relative Size Factor Estimation)
+ * ============================================================================
  * 
- *  double *scaling_factors_A;
- *  double *common_means_A;
- *  double *common_vars_A;
- *
- *  calc_geometric_scaling_factors(counts_A, &scaling_factors_A);
- *
- *  meanvar_counts_to_common_scale(counts_A, scaling_factors_A, &common_means_A, &common_vars_A);
+ * Purpose: Normalizes count data (RNA-seq) using geometric mean-based size factors
+ *          to account for sequencing depth differences between samples
+ * 
+ * Method: DESeq normalization (Anders & Huber, 2010)
+ * 
+ * Algorithm:
+ *   1. Compute geometric mean of each gene across all samples (pseudo-reference)
+ *   2. For each sample, calculate ratio of each gene to its geometric mean
+ *   3. Size factor = median of ratios (excluding genes with geometric mean = 0)
+ *   4. Normalize counts by dividing by size factors
+ * 
+ * Advantages over simple total count normalization:
+ *   - Robust to genes with very high counts
+ *   - Not affected by outlier genes or highly expressed genes
+ *   - Accounts for composition bias (when few genes take up most reads)
+ *   - More accurate for differential expression analysis
+ * 
+ * Applications:
+ *   - RNA-seq normalization (primary use case)
+ *   - ChIP-seq read count normalization
+ *   - Any count-based sequencing data
+ *   - Preparing data for differential expression analysis (DESeq2, edgeR)
+ * 
+ * Typical workflow:
+ *   STB_MAT *counts = stb_matrix_from_file("raw_counts.txt");
+ *   double *scaling_factors;
+ *   double *normalized_means;
+ *   double *normalized_vars;
+ *   
+ *   // Step 1: Calculate size factors
+ *   stb_calc_geometric_scaling_factors(counts, &scaling_factors);
+ *   
+ *   // Step 2: Normalize and compute statistics
+ *   stb_meanvar_counts_to_common_scale(counts, scaling_factors, 
+ *                                      &normalized_means, &normalized_vars);
+ *   
+ *   // counts matrix now contains normalized values
+ *   // normalized_means and normalized_vars contain per-gene statistics
+ *   
+ *   free(scaling_factors);
+ *   free(normalized_means);
+ *   free(normalized_vars);
+ * 
+ * Reference: Anders, S., & Huber, W. (2010). Differential expression analysis
+ *            for sequence count data. Genome Biology, 11(10), R106.
+ * 
+ * See also: stb_fit_f_dist() for variance modeling after normalization
+ *           stb_moderated_ttest() for differential expression testing
  */
 
-/*this function estimates the size factors
-   as follows: Each column is divided by the geometric means of the rows. The median
-   (or, ir requested, another location estimator)
-   of these ratios (skipping the genes with a geometric mean of zero) is used as the
-   size factor for this column.
-   */
+/* Calculate geometric mean-based size factors
+ * 
+ * Purpose: Estimates sample-specific size factors for count normalization
+ *          This is step 1 of RSE/DESeq normalization
+ * 
+ * Method: Each column (sample) is divided by the geometric means of the rows (genes).
+ *         The median of these ratios is the size factor for that column.
+ * 
+ * Mathematical:
+ *   Geometric mean (gene i): GM_i = (∏_j counts[i][j])^(1/n_samples)
+ *   Ratio (gene i, sample j): R[i][j] = log(counts[i][j]) - log(GM_i)
+ *   Size factor (sample j): SF_j = exp(median(R[·][j]))
+ * 
+ * Inputs:
+ *   counts - raw count matrix (rows = genes, columns = samples)
+ *            Values should be integer-like (counts), >= 0
+ * 
+ * Outputs:
+ *   scaling_factors - array of size factors, one per sample (length = n_samples)
+ *                     Must be freed by caller
+ * 
+ * Note: Genes with geometric mean of zero are excluded from median calculation
+ *       Adds small pseudocount (DESEQ_TINY = 1e-8) to avoid log(0)
+ * 
+ * Interpretation: 
+ *   - Size factor > 1: sample has more reads than average, counts will be divided (scaled down)
+ *   - Size factor < 1: sample has fewer reads than average, counts will be divided (scaled up)
+ *   - Size factor = 1: sample is at geometric average sequencing depth
+ * 
+ * Applications:
+ *   - Required preprocessing for DESeq2-style analysis
+ *   - Accounts for library size differences in RNA-seq
+ *   - More robust than simple library size normalization
+ * 
+ * Example:
+ *   STB_MAT *raw_counts = stb_matrix_from_file("counts.txt");
+ *   double *sf;
+ *   stb_calc_geometric_scaling_factors(raw_counts, &sf);
+ *   
+ *   printf("Sample size factors:\n");
+ *   for (int i = 0; i < raw_counts->columns; i++) {
+ *       printf("Sample %d: %.4f\n", i, sf[i]);
+ *   }
+ *   
+ *   free(sf);
+ */
 STB_EXTERN void stb_calc_geometric_scaling_factors(STB_MAT *counts, double **scaling_factors);
 
-// Transform raw counts to the common scale. This is the actual RSE normalization
+/* Transform counts to common scale and compute statistics
+ * 
+ * Purpose: Applies size factors to normalize counts and computes per-gene statistics
+ *          This is step 2 of RSE/DESeq normalization
+ * 
+ * Method: Divides each sample's counts by its size factor, bringing all samples
+ *         to a common scale. Then computes mean and variance for each gene.
+ * 
+ * Mathematical:
+ *   Normalized count[i][j] = count[i][j] / size_factor[j]
+ *   Mean (gene i) = (1/n) Σ_j normalized_count[i][j]
+ *   Variance (gene i) = (1/(n-1)) Σ_j (normalized_count[i][j] - mean_i)²
+ * 
+ * Inputs:
+ *   counts          - count matrix (rows = genes, columns = samples)
+ *                     Modified in-place to contain normalized counts
+ *   scaling_factors - array of size factors (length = n_samples)
+ *                     From stb_calc_geometric_scaling_factors()
+ * 
+ * Outputs:
+ *   means - array of gene means on common scale (length = n_genes)
+ *           Must be freed by caller
+ *   vars  - array of gene variances on common scale (length = n_genes)
+ *           Must be freed by caller
+ * 
+ * Note: Modifies counts matrix in-place - original raw counts are lost
+ *       If you need to preserve raw counts, use stb_dup_matrix() first
+ * 
+ * Applications:
+ *   - Generates normalized counts for visualization and downstream analysis
+ *   - Provides variance estimates for dispersion modeling
+ *   - Required input for stb_fit_f_dist() variance shrinkage
+ *   - Normalized means can be used for fold change calculations
+ * 
+ * Example:
+ *   STB_MAT *counts = stb_matrix_from_file("raw_counts.txt");
+ *   double *sf, *means, *vars;
+ *   
+ *   // Calculate size factors
+ *   stb_calc_geometric_scaling_factors(counts, &sf);
+ *   
+ *   // Normalize and get statistics
+ *   stb_meanvar_counts_to_common_scale(counts, sf, &means, &vars);
+ *   
+ *   // counts now contains normalized values
+ *   // means[i] and vars[i] are statistics for gene i
+ *   
+ *   // Use for differential expression
+ *   double pvar, pdf2;
+ *   stb_fit_f_dist(vars, counts->rows, counts->columns - 1, &pvar, &pdf2);
+ *   
+ *   free(sf);
+ *   free(means);
+ *   free(vars);
+ * 
+ * Warning: After normalization, counts may no longer be integers and should
+ *          not be used with methods that assume count distributions (Poisson/NB)
+ *          Use normalized counts for visualization, not for statistical tests
+ */
 STB_EXTERN void stb_meanvar_counts_to_common_scale(STB_MAT *counts, double *scaling_factors, double **means, double **vars);
 
-/* Perform quantile normalization between columns with a reference, making the distribution of original equal to that of the reference
-In statistics, quantile normalization is a technique for making two distributions identical in statistical properties.
-
-NOTE:
-Given a reference distribution, the original distribution is normalized by replacing each of its values by the value of the variable with the same rank 
-in the reference distribution. If the reference distribution contains multiple samples, the original and reference distributions will only be identical if 
-the reference distribution is first quantile normalized across all samples!
-
-see: https://en.wikipedia.org/wiki/Quantile_normalization
-Arrays 1 to 3, genes A to D
-A    5    4    3
-B    2    1    4
-C    3    4    6
-D    4    2    8
-Converted to STB_MAT file test.mat:
-4 3
-5 4 3
-2 1 4
-3 4 6
-4 2 8
-
-Using the QUNATILE NORMALIZED reference:
-4 3
-5.666667E+00 5.166667E+00 2.000000E+00 
-2.000000E+00 2.000000E+00 3.000000E+00 
-3.000000E+00 5.166667E+00 4.666667E+00 
-4.666667E+00 3.000000E+00 5.666667E+00
-
-will become:
-5.666667E+00 5.166667E+00 2.000000E+00 
-2.000000E+00 2.000000E+00 3.000000E+00 
-3.000000E+00 5.166667E+00 4.666667E+00 
-4.666667E+00 3.000000E+00 5.666667E+00
-
-statistics:
-Min.   :2.000   Min.   :2.000   Min.   :2.000  
-1st Qu.:2.750   1st Qu.:2.750   1st Qu.:2.750  
-Median :3.833   Median :4.083   Median :3.833  
-Mean   :3.833   Mean   :3.833   Mean   :3.833  
-3rd Qu.:4.917   3rd Qu.:5.167   3rd Qu.:4.917  
-Max.   :5.667   Max.   :5.167   Max.   :5.667  
+/* Quantile normalization with reference distribution
+ * 
+ * Purpose: Normalizes data to match a specific reference distribution rather than
+ *          computing an average distribution from the input samples
+ * 
+ * Statistical method: Quantile normalization with target distribution
+ * 
+ * Algorithm:
+ *   1. Rank values within each column of original data
+ *   2. For each rank, find corresponding quantile in reference distribution
+ *   3. Replace each value with the reference quantile at its rank
+ *   4. Reorder to match original ranks
+ * 
+ * Result: Original distribution becomes identical to reference distribution
+ * 
+ * Inputs:
+ *   original  - matrix to normalize (rows = features, columns = samples)
+ *               Matrix is modified in-place
+ *   reference - target distribution matrix (same dimensions as original)
+ *               Should be pre-normalized (e.g., using stb_qnorm_matrix)
+ *   data      - 2D array version of original (for stb_qnorm_with_reference)
+ *   rows      - number of features
+ *   columns   - number of samples
+ * 
+ * Note: Modifies original matrix/array in-place
+ *       Reference should typically be quantile-normalized across samples first
+ * 
+ * Applications:
+ *   - Normalizing new samples to match existing datasets
+ *   - Batch effect correction (normalize to reference batch)
+ *   - Making test data match training data distribution
+ *   - Harmonizing data from different platforms or labs
+ *   - Adjusting datasets to a gold-standard reference
+ * 
+ * Advantages:
+ *   - Consistent normalization across batches
+ *   - New samples can be normalized to established reference
+ *   - Reduces batch effects systematically
+ *   - Maintains consistency with previously normalized data
+ * 
+ * Important: Reference distribution should be quantile-normalized first if it
+ *            contains multiple samples. This ensures all original samples are
+ *            normalized to the same target distribution.
+ * 
+ * Example workflow:
+ *   // Step 1: Create and normalize reference (e.g., from control samples)
+ *   STB_MAT *ref = stb_matrix_from_file("reference_controls.txt");
+ *   stb_qnorm_matrix(ref);  // Normalize reference across samples
+ * 
+ *   // Step 2: Normalize new experimental samples to reference
+ *   STB_MAT *data = stb_matrix_from_file("experimental_batch.txt");
+ *   stb_qnorm_matrix_with_reference(data, ref);
+ * 
+ *   // Now data has same distribution as reference
+ * 
+ * Use cases:
+ *   - RNA-seq: Normalize treatment samples to control distribution
+ *   - Microarray: Match new arrays to established cohort
+ *   - Multi-batch studies: Normalize all batches to first batch
+ *   - Clinical studies: Match patient samples to healthy reference
+ * 
+ * Caution: Only use when you expect samples to have similar distributions
+ *          or when you specifically want to impose a target distribution.
+ *          Not appropriate when biological differences are global.
+ * 
+ * Reference: Bolstad, B. M., et al. (2003). A comparison of normalization
+ *            methods for high density oligonucleotide array data.
+ *            Bioinformatics, 19(2), 185-193.
+ * 
+ * See also: stb_qnorm_matrix() for standard quantile normalization
  */
 STB_EXTERN void stb_qnorm_matrix_with_reference(STB_MAT *original, STB_MAT *reference);
 STB_EXTERN void stb_qnorm_with_reference(double **data, double **reference, int rows, int columns);
 
-/* Perform a simple linear regression and return a vector containing the Beta values, the T-test values 
- * and the corresponding P-values. The formula determined using the least squared method is:
- * Y = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
+/* ============================================================================
+ * REGRESSION FUNCTIONS
+ * ============================================================================ */
+
+/* Multiple linear regression with hypothesis testing
  * 
- * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
+ * Purpose: Fits a linear model to predict continuous outcomes from multiple predictors
+ *          and provides statistical inference for each coefficient
+ * 
+ * Statistical method: Ordinary Least Squares (OLS) regression
+ * 
+ * Model: Y = β₀ + β₁X₁ + β₂X₂ + ... + βₚXₚ + ε
+ *        where ε ~ N(0, σ²)
+ * 
+ * Solution: β = (A'A)⁻¹A'Y (normal equations)
+ * 
+ * Inputs:
+ *   A - design matrix (n × p+1) where n = samples, p = predictors
+ *       First column should be all 1s for intercept, or use stb_join_matrix()
+ *       to add intercept column
+ *   Y - response vector (n × 1) containing outcome values
+ * 
+ * Outputs:
+ *   beta   - coefficient estimates (p+1 × 1), beta[0] = intercept
+ *            Must be freed by caller
+ *   tvalue - t-statistics for testing H₀: βᵢ = 0 (p+1 × 1)
+ *            Must be freed by caller
+ *   pvalue - two-tailed p-values for each coefficient (p+1 × 1)
+ *            Must be freed by caller
+ * 
+ * Assumptions:
+ *   - Linear relationship between predictors and outcome
+ *   - Homoscedasticity (constant error variance)
+ *   - Independence of errors
+ *   - Normality of residuals (for inference)
+ *   - No perfect multicollinearity (A'A must be invertible)
+ * 
+ * Applications:
+ *   - Predicting continuous outcomes from features
+ *   - Gene expression: testing association with phenotypes
+ *   - Controlling for confounders (covariates in model)
+ *   - Dose-response relationships
+ *   - Feature importance via p-values
+ * 
+ * Interpretation:
+ *   - beta[i]: expected change in Y for one-unit increase in predictor i
+ *   - tvalue[i]: standardized effect size (beta[i] / SE(beta[i]))
+ *   - pvalue[i] < 0.05: predictor i is statistically significant
+ * 
+ * Example:
+ *   // Predict gene expression from age and sex
+ *   STB_MAT *intercept = stb_new_matrix(100, 1);
+ *   stb_fill_matrix(intercept, 1.0);
+ *   STB_MAT *predictors = ...; // 100 × 2 (age, sex)
+ *   STB_MAT *design;
+ *   stb_join_matrix(intercept, predictors, &design);  // 100 × 3
+ *   
+ *   STB_MAT *expression = ...; // 100 × 1
+ *   double *beta, *tval, *pval;
+ *   stb_multi_linear_regression(design, expression, &beta, &tval, &pval);
+ *   
+ *   printf("Intercept: β=%.4f, p=%.4e\n", beta[0], pval[0]);
+ *   printf("Age:       β=%.4f, p=%.4e\n", beta[1], pval[1]);
+ *   printf("Sex:       β=%.4f, p=%.4e\n", beta[2], pval[2]);
+ *   
+ *   free(beta); free(tval); free(pval);
+ * 
+ * Note: For large p (high-dimensional), consider regularization (ridge/lasso)
+ *       For heteroscedastic errors, use robust standard errors
+ *       Check model assumptions via residual diagnostics
+ * 
+ * Reference: Linear Models by Searle, S. R. (1971)
  */
 STB_EXTERN void stb_multi_linear_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **tvalue, double **pvalue);
 
-/* Perform a simple logistic regression and return a vector containing the Beta values, the Z-test values 
- * , the corresponding P-values and return the log-likelihood. The formula determined using the newton method is:
- * ln(1 / 1 - Y) = Beta[0] + Beta[1] * X[0] + Beta[2] * X[1] + Beta[n] * X[n-1]
- *
- * Note: This can also be calculated using a design matrix (1 on first column and X values for the rest)
+/* Multiple logistic regression with hypothesis testing
+ * 
+ * Purpose: Fits a logistic model for binary outcomes and provides inference
+ *          Uses Newton-Raphson optimization for maximum likelihood estimation
+ * 
+ * Statistical method: Logistic regression (binomial GLM with logit link)
+ * 
+ * Model: logit(P(Y=1)) = log(P(Y=1)/(1-P(Y=1))) = β₀ + β₁X₁ + ... + βₚXₚ
+ *        P(Y=1|X) = 1 / (1 + exp(-(β₀ + β'X)))
+ * 
+ * Optimization: Newton-Raphson method to maximize log-likelihood
+ * 
+ * Inputs:
+ *   A - design matrix (n × p+1) where n = samples, p = predictors
+ *       First column should be all 1s for intercept
+ *   Y - binary response (n × 1) with values 0 or 1
+ * 
+ * Outputs:
+ *   beta   - coefficient estimates (p+1 × 1), beta[0] = log-odds intercept
+ *            Must be freed by caller
+ *   zvalue - Wald z-statistics for testing H₀: βᵢ = 0 (p+1 × 1)
+ *            Must be freed by caller
+ *   pvalue - two-tailed p-values for each coefficient (p+1 × 1)
+ *            Must be freed by caller
+ * 
+ * Returns: Log-likelihood of fitted model
+ * 
+ * Assumptions:
+ *   - Binary outcome (0/1)
+ *   - Independence of observations
+ *   - Linear relationship between predictors and log-odds
+ *   - No perfect separation (all Y=1 or Y=0 for some X combination)
+ *   - No perfect multicollinearity
+ * 
+ * Applications:
+ *   - Disease risk prediction (case/control)
+ *   - Classification with probability estimates
+ *   - Gene expression: case vs control association
+ *   - Genome-wide association studies (GWAS)
+ *   - Clinical outcome prediction
+ * 
+ * Interpretation:
+ *   - beta[i]: log odds-ratio for one-unit increase in predictor i
+ *   - exp(beta[i]): odds ratio (multiplicative effect on odds)
+ *   - zvalue[i]: standardized effect (beta[i] / SE(beta[i]))
+ *   - pvalue[i] < 0.05: predictor i significantly affects outcome
+ * 
+ * Example:
+ *   // Predict disease status from gene expression levels
+ *   STB_MAT *intercept = stb_new_matrix(200, 1);
+ *   stb_fill_matrix(intercept, 1.0);
+ *   STB_MAT *genes = ...; // 200 × 5 (5 gene expression levels)
+ *   STB_MAT *design;
+ *   stb_join_matrix(intercept, genes, &design);  // 200 × 6
+ *   
+ *   STB_MAT *disease = ...; // 200 × 1 (0=control, 1=case)
+ *   double *beta, *zval, *pval;
+ *   double loglik = stb_multi_logistic_regression(design, disease, 
+ *                                                  &beta, &zval, &pval);
+ *   
+ *   printf("Log-likelihood: %.4f\n", loglik);
+ *   for (int i = 0; i < 6; i++) {
+ *       double odds_ratio = exp(beta[i]);
+ *       printf("Coef %d: β=%.4f, OR=%.4f, p=%.4e\n", 
+ *              i, beta[i], odds_ratio, pval[i]);
+ *   }
+ *   
+ *   free(beta); free(zval); free(pval);
+ * 
+ * Note: Requires adequate sample size (rule of thumb: 10 events per predictor)
+ *       For rare outcomes or perfect separation, use Firth's penalized likelihood
+ *       For high-dimensional data, use regularization (see stb_logistic_regression_L2)
+ * 
+ * Reference: Hosmer, D. W., & Lemeshow, S. (2000). Applied Logistic Regression.
  */
 STB_EXTERN double stb_multi_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
-/* L2-regularized logistic regression
- * NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
- * NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+/* L2-regularized logistic regression (Ridge logistic regression)
+ * 
+ * Purpose: Fits logistic regression with L2 penalty to prevent overfitting
+ *          and handle high-dimensional data or multicollinearity
+ * 
+ * Statistical method: Penalized maximum likelihood estimation
+ * 
+ * Model: logit(P(Y=1)) = β'X (no automatic intercept added)
+ *        Minimizes: -log-likelihood + λΣβᵢ²
+ * 
+ * Regularization: Ridge (L2) penalty shrinks coefficients toward zero
+ *                 Reduces variance at cost of introducing small bias
+ * 
+ * Inputs:
+ *   A - design matrix (n × p), manually add intercept column if desired
+ *   Y - binary response (n × 1) with values +1 or -1 (NOT 0/1)
+ * 
+ * Outputs:
+ *   beta   - regularized coefficient estimates (p × 1)
+ *            Must be freed by caller
+ *   zvalue - Wald z-statistics (p × 1)
+ *            Must be freed by caller
+ *   pvalue - two-tailed p-values (p × 1)
+ *            Must be freed by caller
+ * 
+ * Important differences from stb_multi_logistic_regression:
+ *   - Y must be coded as +1/-1 instead of 1/0
+ *   - Intercept NOT automatically included - add column of 1s to A if needed
+ *   - Coefficients shrunk toward zero by regularization
+ * 
+ * Applications:
+ *   - High-dimensional classification (p > n or p ~ n)
+ *   - Preventing overfitting with many predictors
+ *   - Handling multicollinearity
+ *   - Machine learning classification tasks
+ *   - Genomics: when predictors >> samples
+ * 
+ * Advantages:
+ *   - Handles collinear predictors
+ *   - Works when p > n (more features than samples)
+ *   - Reduces model variance (overfitting)
+ *   - All coefficients remain in model (unlike L1/lasso)
+ * 
+ * Disadvantages:
+ *   - Biased estimates (coefficients shrunk)
+ *   - Requires tuning regularization parameter λ
+ *   - Does not perform variable selection
+ *   - p-values less reliable due to bias
+ * 
+ * Example:
+ *   // High-dimensional classification with 50 genes, 30 samples
+ *   STB_MAT *intercept = stb_new_matrix(30, 1);
+ *   stb_fill_matrix(intercept, 1.0);
+ *   STB_MAT *genes = ...; // 30 × 50
+ *   STB_MAT *design;
+ *   stb_join_matrix(intercept, genes, &design);  // 30 × 51
+ *   
+ *   STB_MAT *outcome = ...; // 30 × 1, values +1 or -1
+ *   double *beta, *zval, *pval;
+ *   stb_logistic_regression_L2(design, outcome, &beta, &zval, &pval);
+ *   
+ *   // Predict on new sample
+ *   double log_odds = beta[0];  // intercept
+ *   for (int i = 0; i < 50; i++) {
+ *       log_odds += beta[i+1] * new_sample[i];
+ *   }
+ *   double prob = 1.0 / (1.0 + exp(-log_odds));
+ *   
+ *   free(beta); free(zval); free(pval);
+ * 
+ * Note: λ parameter is hardcoded in implementation
+ *       For optimal λ, use cross-validation
+ *       For variable selection, consider L1 regularization (lasso)
+ * 
+ * Reference: Friedman, J., Hastie, T., & Tibshirani, R. (2010). 
+ *            Regularization paths for generalized linear models via coordinate descent.
  */
 STB_EXTERN void stb_logistic_regression_L2(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
-/* simple logistic regression
- * NOTE: Unlike stb_multi_logistic_regression, to get the intercept (bias), add a column of 1.0s to matrix A
- * NOTE: Unlike stb_multi_logistic_regression, Y = 1 or -1 instead of 1 or 0!
+/* Unregularized logistic regression (alternative formulation)
+ * 
+ * Purpose: Simple logistic regression without regularization
+ *          Alternative to stb_multi_logistic_regression with different interface
+ * 
+ * Model: logit(P(Y=1)) = β'X (no automatic intercept)
+ * 
+ * Inputs:
+ *   A - design matrix (n × p), add intercept column manually if needed
+ *   Y - binary response (n × 1) with values +1 or -1 (NOT 0/1)
+ * 
+ * Outputs:
+ *   beta   - coefficient estimates (p × 1), must be freed by caller
+ *   zvalue - Wald z-statistics (p × 1), must be freed by caller
+ *   pvalue - two-tailed p-values (p × 1), must be freed by caller
+ * 
+ * Important differences from stb_multi_logistic_regression:
+ *   - Y must be coded as +1/-1 instead of 1/0
+ *   - Intercept NOT automatically included
+ *   - No regularization applied
+ * 
+ * Applications:
+ *   - Binary classification with moderate dimensions
+ *   - When you want explicit control over intercept
+ *   - Interfacing with code expecting +1/-1 labels
+ * 
+ * Example:
+ *   STB_MAT *design = ...; // n × p (with intercept if desired)
+ *   STB_MAT *labels = ...; // n × 1 (values +1 or -1)
+ *   double *beta, *zval, *pval;
+ *   stb_logistic_regression(design, labels, &beta, &zval, &pval);
+ *   
+ *   free(beta); free(zval); free(pval);
+ * 
+ * Note: Prefer stb_multi_logistic_regression for standard use
+ *       This function useful when +1/-1 encoding is required
  */
 STB_EXTERN void stb_logistic_regression(STB_MAT *A, STB_MAT *Y, double **beta, double **zvalue, double **pvalue);
 
@@ -1093,88 +3366,656 @@ STB_EXTERN int stb_dunique(double *values, double **counts, int len);
  */
 STB_EXTERN int stb_iunique(int *values, int **counts, int len);
 
-/**
- * Main entry point for creation of Jenks-Fisher natural breaks.
- * Port of Jenks/Fisher breaks originally created in C++ by Maarten Hilferink.
- * @param values array of the values, do not need to be sorted.
- * @param k number of breaks to create
- * @param len length of values array
- * @return Array with breaks
+/* Jenks Natural Breaks optimization
+ * 
+ * Purpose: Finds optimal breakpoints to classify data into k classes
+ *          Minimizes within-class variance and maximizes between-class variance
+ * 
+ * Algorithm: Jenks-Fisher natural breaks (dynamic programming)
+ *            O(k×n×log(n)) complexity using optimized implementation
+ * 
+ * Mathematical objective: Minimize Σ GVF (Goodness of Variance Fit)
+ *   - GVF = 1 - (SDAM / SDCM)
+ *   - SDAM = sum of squared deviations of class means from array mean
+ *   - SDCM = sum of squared deviations from class means
+ * 
+ * Inputs:
+ *   values - array of numerical values to classify (unsorted is fine)
+ *   len    - number of values in array
+ *   k      - number of classes to create
+ * 
+ * Returns: Array of k+1 breakpoints (including min and max)
+ *          Must be freed by caller
+ * 
+ * Breakpoints define k classes:
+ *   - Class 1: [breaks[0], breaks[1])
+ *   - Class 2: [breaks[1], breaks[2])
+ *   - ...
+ *   - Class k: [breaks[k-1], breaks[k]]
+ * 
+ * Applications:
+ *   - Choropleth map classification (cartography)
+ *   - Data binning and discretization
+ *   - Color scale optimization for heatmaps
+ *   - Gene expression level categorization
+ *   - Histogram bin optimization
+ *   - Natural grouping of continuous variables
+ * 
+ * Advantages:
+ *   - Optimal breaks that minimize within-group variance
+ *   - Finds natural groupings in data
+ *   - Better than equal-interval or quantile methods for clustered data
+ *   - Deterministic result (not random like k-means)
+ * 
+ * Bioinformatics applications:
+ *   - Categorizing gene expression levels (low/medium/high)
+ *   - Copy number variation classification (deletion/normal/amplification)
+ *   - Methylation level classification
+ *   - Heatmap color scale optimization
+ * 
+ * Example:
+ *   // Classify gene expression into 3 categories
+ *   double expression[] = {0.5, 0.8, 1.2, 1.5, 5.2, 5.8, 6.1, 
+ *                          15.3, 15.9, 16.2, 16.8};
+ *   int n = 11;
+ *   int n_classes = 3;
+ *   
+ *   double *breaks = stb_jenks(expression, n, n_classes);
+ *   
+ *   printf("Optimal breakpoints for %d classes:\n", n_classes);
+ *   printf("Low:    [%.2f, %.2f)\n", breaks[0], breaks[1]);
+ *   printf("Medium: [%.2f, %.2f)\n", breaks[1], breaks[2]);
+ *   printf("High:   [%.2f, %.2f]\n", breaks[2], breaks[3]);
+ *   // Might produce: Low [0.5,1.5), Medium [1.5,6.1), High [6.1,16.8]
+ *   
+ *   // Classify genes
+ *   for (int i = 0; i < n; i++) {
+ *       for (int j = 0; j < n_classes; j++) {
+ *           if (expression[i] >= breaks[j] && expression[i] < breaks[j+1]) {
+ *               printf("Gene %d (%.2f): Class %d\n", i, expression[i], j+1);
+ *               break;
+ *           }
+ *       }
+ *   }
+ *   
+ *   free(breaks);
+ * 
+ * Use in heatmaps:
+ *   // Create color scale for expression heatmap
+ *   double *all_values = flatten_matrix(expr_data, n_genes * n_samples);
+ *   double *breaks = stb_jenks(all_values, n_genes * n_samples, 5);
+ *   
+ *   // Use breaks to assign colors
+ *   for (int i = 0; i < 5; i++) {
+ *       assign_color_to_range(breaks[i], breaks[i+1], colors[i]);
+ *   }
+ * 
+ * Comparison to other methods:
+ *   - Equal interval: Simple but ignores data distribution
+ *   - Quantiles: Equal counts but may split natural groups
+ *   - Jenks: Optimal variance minimization, respects natural groupings
+ * 
+ * Complexity:
+ *   - Time: O(k×n×log(n)) using optimized algorithm
+ *   - Space: O(k×n) for dynamic programming table
+ * 
+ * Note: Values do not need to be sorted - function handles this internally
+ *       Useful when you want natural class boundaries rather than arbitrary ones
+ *       Original algorithm by Jenks (1967), optimized by Fisher (1958)
+ * 
+ * Reference: Jenks, G. F. (1967). The data model concept in statistical mapping.
+ *            International Yearbook of Cartography, 7, 186-190.
+ *            Port by Maarten Hilferink (C++ implementation).
+ * 
+ * See also: stb_kmeans() for cluster-based classification
  */
 STB_EXTERN double *stb_jenks(double *values, int len, int k);
 
-/* calculate the euclidean distance between two points */
+/* ============================================================================
+ * DISTANCE AND SIMILARITY METRICS
+ * ============================================================================ */
+
+/* Euclidean distance between two points
+ * 
+ * Purpose: Computes the straight-line (L2) distance between two vectors
+ * 
+ * Mathematical: d(a,b) = √(Σᵢ(aᵢ - bᵢ)²)
+ * 
+ * Inputs:
+ *   a    - first vector (length = size)
+ *   b    - second vector (length = size)
+ *   size - dimensionality of vectors
+ * 
+ * Returns: Euclidean distance as a double
+ * 
+ * Properties:
+ *   - Always non-negative: d(a,b) ≥ 0
+ *   - Symmetric: d(a,b) = d(b,a)
+ *   - Identity: d(a,a) = 0
+ *   - Triangle inequality: d(a,c) ≤ d(a,b) + d(b,c)
+ * 
+ * Applications:
+ *   - K-means clustering (distance to centroids)
+ *   - K-nearest neighbors (KNN) classification
+ *   - Outlier detection
+ *   - Similarity searches in high-dimensional spaces
+ *   - Gene expression pattern comparison
+ * 
+ * Note: For distance comparisons (e.g., finding nearest neighbor), use
+ *       stb_euclidean_distance_sqr() instead - avoids expensive sqrt()
+ * 
+ * Example:
+ *   double gene1[] = {2.1, 5.3, 1.8};
+ *   double gene2[] = {2.5, 4.9, 2.1};
+ *   double dist = stb_euclidean_distance(gene1, gene2, 3);
+ *   // dist ≈ 0.58
+ * 
+ * See also: stb_euclidean_distance_sqr() for faster distance comparisons
+ */
 STB_EXTERN double stb_euclidean_distance(const double *a, const double *b, const int size);
 
-/* Most of the time, this is sufficient and slightly faster calculate the sqr euclidean distance between two points */
+/* Squared Euclidean distance between two points
+ * 
+ * Purpose: Computes squared L2 distance without taking square root
+ *          Faster than stb_euclidean_distance() for comparisons
+ * 
+ * Mathematical: d²(a,b) = Σᵢ(aᵢ - bᵢ)²
+ * 
+ * Inputs:
+ *   a    - first vector (length = size)
+ *   b    - second vector (length = size)
+ *   size - dimensionality of vectors
+ * 
+ * Returns: Squared Euclidean distance as a double
+ * 
+ * Advantages:
+ *   - Faster computation (avoids sqrt)
+ *   - Preserves distance ordering: if d²(a,c) < d²(a,b), then d(a,c) < d(a,b)
+ *   - Sufficient for many applications that only need relative distances
+ * 
+ * Applications:
+ *   - K-nearest neighbors (finding closest points)
+ *   - K-means clustering (assignment step)
+ *   - t-SNE optimization
+ *   - UMAP embedding
+ *   - Any algorithm that compares distances but doesn't need actual values
+ * 
+ * Example:
+ *   // Find nearest neighbor
+ *   double query[] = {1.0, 2.0, 3.0};
+ *   double best_dist_sqr = INFINITY;
+ *   int best_idx = -1;
+ *   
+ *   for (int i = 0; i < n_points; i++) {
+ *       double dist_sqr = stb_euclidean_distance_sqr(query, points[i], 3);
+ *       if (dist_sqr < best_dist_sqr) {
+ *           best_dist_sqr = dist_sqr;
+ *           best_idx = i;
+ *       }
+ *   }
+ *   
+ *   // If actual distance needed: sqrt(best_dist_sqr)
+ * 
+ * Note: Most of the time, this is sufficient and slightly faster than
+ *       stb_euclidean_distance() for distance-based comparisons
+ */
 STB_EXTERN double stb_euclidean_distance_sqr(const double *a, const double *b, const int size);
 
-/* Cosine similarity */
+/* Cosine similarity between two vectors
+ * 
+ * Purpose: Measures similarity based on angle between vectors,
+ *          independent of magnitude
+ * 
+ * Mathematical: cos(θ) = (a·b) / (||a|| ||b||) = Σᵢ(aᵢbᵢ) / √(Σᵢaᵢ²)√(Σᵢbᵢ²)
+ * 
+ * Inputs:
+ *   a    - first vector (length = size)
+ *   b    - second vector (length = size)
+ *   size - dimensionality of vectors
+ * 
+ * Returns: Cosine similarity in range [-1, 1]
+ *   - 1.0:  vectors point in same direction (identical after normalization)
+ *   - 0.0:  vectors are orthogonal (perpendicular)
+ *   - -1.0: vectors point in opposite directions
+ * 
+ * Conversion to distance: cosine distance = 1 - cosine similarity (range [0, 2])
+ * 
+ * Advantages over Euclidean distance:
+ *   - Scale-invariant (magnitude doesn't matter)
+ *   - Focuses on pattern/shape rather than absolute values
+ *   - Effective in high-dimensional spaces
+ *   - Natural for normalized data or directional comparisons
+ * 
+ * Applications:
+ *   - Text similarity (TF-IDF vectors, document comparison)
+ *   - Gene expression correlation (co-expression analysis)
+ *   - Recommendation systems (user/item similarity)
+ *   - Image similarity (feature vectors)
+ *   - Finding genes with similar expression patterns
+ * 
+ * Bioinformatics use cases:
+ *   - Gene expression: compare expression profiles across conditions
+ *   - Co-expression networks: identify co-regulated genes
+ *   - Pathway analysis: compare gene sets
+ *   - Protein sequence comparison
+ * 
+ * Example:
+ *   // Compare gene expression patterns (3 samples)
+ *   double gene_A[] = {10.0, 20.0, 30.0};  // Increasing
+ *   double gene_B[] = {5.0, 10.0, 15.0};   // Increasing (scaled down)
+ *   double gene_C[] = {30.0, 20.0, 10.0};  // Decreasing
+ *   
+ *   double sim_AB = stb_cosine_similarity(gene_A, gene_B, 3);  // ≈ 1.0 (same pattern)
+ *   double sim_AC = stb_cosine_similarity(gene_A, gene_C, 3);  // ≈ -1.0 (opposite)
+ *   
+ *   // Gene A and B are co-expressed (positive correlation)
+ *   // Gene A and C are anti-correlated (negative correlation)
+ * 
+ * Note: Related to Pearson correlation - cosine similarity of mean-centered data
+ *       equals Pearson correlation coefficient
+ * 
+ * See also: Use stb_pearson() for explicit correlation with p-values
+ */
 STB_EXTERN double stb_cosine_similarity(const double *a, const double *b, const int size);
 
-/* K-Means++ data clustering
- * x[n][d] = the data points
- * n       = Number of points
- * d       = Dimension of the data (e.g. color, weight, etc.) 
- * k       = # clusters
-*  c[k][d] = Center points of clusters
-*  z[n]    = What cluster a point is in
-*  wss[k]  = The within-cluster sum of square of each cluster (optional)
-*
-* Note: This algorithm does not scale very well to a large number of points, consider using k-Means||
-*/
+/* ============================================================================
+ * STATISTICAL UTILITIES
+ * ============================================================================ */
+
+/* Compute median of a dataset
+ * 
+ * Purpose: Returns the middle value when data is sorted
+ *          Robust measure of central tendency
+ * 
+ * Statistical: Median is the 50th percentile
+ *   - For odd n: median = sorted[n/2]
+ *   - For even n: median = (sorted[n/2-1] + sorted[n/2]) / 2
+ * 
+ * Inputs:
+ *   data - array of numerical values
+ *   n    - number of elements in array
+ * 
+ * Returns: Median value as a double
+ * 
+ * Note: Modifies input array by sorting it in-place
+ *       If you need to preserve original order, make a copy first
+ * 
+ * Advantages over mean:
+ *   - Robust to outliers and extreme values
+ *   - Better for skewed distributions
+ *   - Not affected by a few very large or small values
+ *   - Represents "typical" value better for non-normal data
+ * 
+ * Applications:
+ *   - Summarizing skewed distributions (e.g., gene expression)
+ *   - Robust normalization (median normalization)
+ *   - Detecting outliers (values far from median)
+ *   - DESeq size factor estimation (median of ratios)
+ *   - Quality control metrics
+ * 
+ * Bioinformatics applications:
+ *   - RNA-seq: median gene expression across samples
+ *   - QC: median read depth, median quality scores
+ *   - Normalization: median of ratios method
+ *   - Copy number variation: median signal intensity
+ * 
+ * Example:
+ *   double expression[] = {5.2, 100.0, 5.5, 5.1, 5.3};  // One outlier
+ *   double med = stb_median(expression, 5);  // Returns ≈ 5.3 (robust)
+ *   
+ *   // Compare to mean
+ *   double mean = 0.0;
+ *   for (int i = 0; i < 5; i++) mean += expression[i];
+ *   mean /= 5.0;  // Returns ≈ 24.2 (affected by outlier)
+ *   
+ *   // Median better represents typical expression level
+ * 
+ * Complexity: O(n log n) due to sorting
+ * 
+ * Warning: Input array is sorted in-place. Original order is lost.
+ *          Make a copy first if order must be preserved.
+ */
+STB_EXTERN double stb_median(double *data, int n);
+
+/* ============================================================================
+ * CLUSTERING ALGORITHMS
+ * ============================================================================ */
+
+/* K-Means++ clustering
+ * 
+ * Purpose: Partitions data into k clusters by minimizing within-cluster variance
+ *          Uses k-means++ initialization for better convergence
+ * 
+ * Algorithm: K-means++ (Arthur & Vassilvitskii, 2007)
+ *   1. Initialize: Choose first centroid randomly
+ *   2. For each remaining centroid: choose point with probability proportional to D²
+ *      where D = distance to nearest existing centroid
+ *   3. Assignment: Assign each point to nearest centroid
+ *   4. Update: Recalculate centroids as mean of assigned points
+ *   5. Repeat steps 3-4 until convergence
+ * 
+ * Inputs:
+ *   x - data matrix (n × d), n points in d dimensions
+ *   n - number of data points
+ *   d - dimensionality of each point
+ *   k - number of clusters to create
+ * 
+ * Outputs:
+ *   cret    - cluster centers (k × d), must be freed by caller
+ *   zret    - cluster assignments (n × 1), z[i] = cluster of point i (optional, can be NULL)
+ *   wssret  - within-cluster sum of squares for each cluster (k × 1) (optional, requires zret)
+ * 
+ * Applications:
+ *   - Customer segmentation
+ *   - Image compression (color quantization)
+ *   - Gene expression clustering (identify co-expressed genes)
+ *   - Cell type identification in single-cell RNA-seq
+ *   - Dimensionality reduction preprocessing
+ *   - Pattern recognition
+ * 
+ * Bioinformatics applications:
+ *   - scRNA-seq: cluster cells by expression profiles
+ *   - Metagenomics: bin sequences by composition
+ *   - Protein structure: group similar conformations
+ *   - Pathway analysis: cluster genes by function
+ * 
+ * Advantages:
+ *   - Simple and intuitive
+ *   - Fast convergence (typically few iterations)
+ *   - k-means++ initialization improves on random initialization
+ *   - Scales reasonably to moderate datasets
+ * 
+ * Limitations:
+ *   - Must specify k in advance
+ *   - Assumes spherical clusters
+ *   - Sensitive to outliers
+ *   - Can converge to local optima
+ *   - Poor scalability to very large datasets (consider k-means||)
+ * 
+ * Example:
+ *   // Cluster gene expression profiles
+ *   double **expr_data = ...; // 1000 genes × 10 samples
+ *   double **centers;
+ *   int *assignments;
+ *   double *wss;
+ *   
+ *   stb_kmeans(expr_data, 1000, 10, 5, &centers, &assignments, &wss);
+ *   
+ *   // centers[0..4] are the 5 cluster centers
+ *   // assignments[i] tells which cluster gene i belongs to (0-4)
+ *   // wss[j] is the within-cluster variance for cluster j
+ *   
+ *   printf("Cluster qualities (lower WSS = tighter cluster):\n");
+ *   for (int i = 0; i < 5; i++) {
+ *       printf("Cluster %d: WSS = %.2f\n", i, wss[i]);
+ *   }
+ *   
+ *   free(centers);
+ *   free(assignments);
+ *   free(wss);
+ * 
+ * Choosing k:
+ *   - Elbow method: plot WSS vs k, look for "elbow"
+ *   - Silhouette score: measure cluster separation
+ *   - Gap statistic: compare to null reference distribution
+ *   - Domain knowledge: biologically meaningful number
+ * 
+ * Note: Does not scale well to very large datasets
+ *       For big data, consider k-means|| or mini-batch k-means
+ * 
+ * Reference: Arthur, D., & Vassilvitskii, S. (2007). k-means++: The advantages
+ *            of careful seeding. SODA '07.
+ */
 STB_EXTERN void stb_kmeans(double **x, int n, int d, int k, double ***cret, int **zret, double **wssret);
 
 /* Compute eigenvalues and eigenvectors of a symmetric matrix
- * a[n][n] = The matrix
- * n       = Order of a
- * w[n]    = Eigenvalues
- * z[n][n] = Eigenvectors
+ * 
+ * Purpose: Spectral decomposition of a symmetric matrix
+ *          Essential for PCA, covariance analysis, graph clustering
+ * 
+ * Mathematical: For symmetric matrix A, finds A = VΛV' where
+ *   - Λ is diagonal matrix of eigenvalues
+ *   - V is matrix of eigenvectors (columns are eigenvectors)
+ *   - V'V = I (orthonormal eigenvectors)
+ * 
+ * Inputs:
+ *   a - symmetric matrix (n × n)
+ *   n - dimension of matrix
+ * 
+ * Outputs:
+ *   wret - eigenvalues (n × 1), sorted descending, must be freed
+ *   zret - eigenvectors (n × n), columns are eigenvectors, must be freed
+ * 
+ * Returns: 0 on success, non-zero on error
+ * 
+ * Properties:
+ *   - For symmetric A, all eigenvalues are real
+ *   - Eigenvectors are orthogonal
+ *   - First eigenvector corresponds to largest eigenvalue
+ * 
+ * Applications:
+ *   - Principal Component Analysis (eigenvectors of covariance matrix)
+ *   - Spectral clustering
+ *   - Dimensionality reduction
+ *   - Matrix factorization
+ *   - Stability analysis
+ * 
+ * Example (part of PCA):
+ *   // Compute principal components
+ *   STB_MAT *cov = compute_covariance_matrix(data);
+ *   double **eigenvalues;
+ *   double ***eigenvectors;
+ *   
+ *   stb_eigenv(cov->data, cov->rows, &eigenvalues, &eigenvectors);
+ *   
+ *   // eigenvalues[0] is variance explained by PC1
+ *   // eigenvectors[0] is PC1 direction
+ * 
+ * Note: This is a helper function, typically used internally by stb_pca()
+ *       For PCA, use stb_pca() directly rather than calling this manually
  */
 STB_EXTERN int stb_eigenv (double **a, int n, double **wret, double ***zret);
 
-/* This function returns the median */
-STB_EXTERN double stb_median(double *data, int n);
+/* ============================================================================
+ * DIMENSIONALITY REDUCTION
+ * ============================================================================ */
 
-/* stb_pca Principal Component Analysis
- * x[n][p]    = Data matrix
- * nx[n][p]   = 1 if data exists this point, 0 otherwise (optional (no missing data), can be NULL)
- * n          = Number of objects
- * p          = Variables each object
- * weights[p] = Weight of each variable (optional, can be NULL)
- * eret[p]    = Eigenvalues of covariance matrix
- * vret[p]    = Eigenvectors of covariance matrix
- * rret[n][m] = Projected data
- * m          = # of dimensions to project
- * level      = Level of robustness:
- *      -1 => flimsy statistics, Chebyshev codeviation
- *       0 => regular statistics, covariance matrix
- *       1 => semi-robust statistics, Manahattan codeviation
- *       2 => robust statistics, comedian matrix
+/* Principal Component Analysis (PCA)
+ * 
+ * Purpose: Projects high-dimensional data onto lower-dimensional subspace
+ *          that maximizes variance, revealing main patterns in data
+ * 
+ * Statistical method: Eigen decomposition of covariance/codeviation matrix
+ * 
+ * Mathematical: Finds orthogonal directions (principal components) that
+ *               explain maximum variance in data
+ *   - PC1: direction of maximum variance
+ *   - PC2: direction of maximum remaining variance (orthogonal to PC1)
+ *   - PC3: direction of maximum remaining variance (orthogonal to PC1 & PC2)
+ *   - etc.
+ * 
+ * Inputs:
+ *   x          - data matrix (n × p), n samples with p features each
+ *   n          - number of samples
+ *   p          - number of features (dimensions)
+ *   nx         - missing data indicator (n × p), 1 if data exists, 0 if missing
+ *                (optional, can be NULL for complete data)
+ *   weights    - feature weights (p × 1), optional, can be NULL for equal weights
+ *   m          - number of principal components to return (m ≤ p)
+ *   level      - robustness level:
+ *                -1 = flimsy (Chebyshev codeviation)
+ *                 0 = regular (covariance matrix) - standard PCA
+ *                 1 = semi-robust (Manhattan codeviation)
+ *                 2 = robust (comedian matrix) - robust to outliers
+ * 
+ * Outputs:
+ *   eret - eigenvalues (p × 1), variance explained by each PC, must be freed
+ *   vret - eigenvectors (p × p), columns are PCs (loadings), must be freed
+ *   rret - projected data (n × m), samples in PC space, must be freed
+ * 
+ * Interpretation:
+ *   - eret[i]/sum(eret): proportion of variance explained by PC i+1
+ *   - vret[·][i]: loadings (feature contributions) for PC i+1
+ *   - rret[j][·]: coordinates of sample j in PC space
+ * 
+ * Applications:
+ *   - Dimensionality reduction for visualization (plot PC1 vs PC2)
+ *   - Feature extraction (use PCs as new features)
+ *   - Noise reduction (keep top PCs, discard noise)
+ *   - Exploratory data analysis (identify patterns, outliers)
+ *   - Preprocessing for machine learning
+ * 
+ * Bioinformatics applications:
+ *   - Gene expression: identify main expression patterns
+ *   - scRNA-seq: cell type clustering and visualization
+ *   - Population genetics: ancestry inference
+ *   - Metagenomics: sample similarity analysis
+ *   - Proteomics: identify protein expression patterns
+ * 
+ * Advantages:
+ *   - Unsupervised (no labels needed)
+ *   - Optimal linear dimensionality reduction (max variance)
+ *   - Interpretable (PCs show feature contributions)
+ *   - Fast computation
+ *   - Handles multicollinearity
+ * 
+ * Limitations:
+ *   - Linear method (may miss nonlinear structure)
+ *   - Sensitive to outliers (use level=2 for robustness)
+ *   - Assumes variance = importance
+ *   - PCs can be hard to interpret biologically
+ * 
+ * Example:
+ *   // Reduce 10,000 gene dimensions to 2 for visualization
+ *   double **gene_expr = ...; // 100 samples × 10000 genes
+ *   double **eigenvalues;
+ *   double ***eigenvectors;
+ *   double ***pc_coords;
+ *   
+ *   stb_pca(gene_expr, 100, 10000, NULL, NULL, 2, 0, 
+ *           &eigenvalues, &eigenvectors, &pc_coords);
+ *   
+ *   // Print variance explained
+ *   double total_var = 0;
+ *   for (int i = 0; i < 10000; i++) total_var += eigenvalues[i];
+ *   printf("PC1 explains %.1f%% variance\n", 100*eigenvalues[0]/total_var);
+ *   printf("PC2 explains %.1f%% variance\n", 100*eigenvalues[1]/total_var);
+ *   
+ *   // Plot samples in PC space
+ *   for (int i = 0; i < 100; i++) {
+ *       plot_point(pc_coords[i][0], pc_coords[i][1]);  // PC1 vs PC2
+ *   }
+ *   
+ *   // Identify top contributing genes to PC1
+ *   for (int i = 0; i < 10; i++) {
+ *       printf("Gene %d loading on PC1: %.4f\n", i, eigenvectors[i][0]);
+ *   }
+ *   
+ *   free(eigenvalues);
+ *   free(eigenvectors);
+ *   free(pc_coords);
+ * 
+ * Choosing number of PCs:
+ *   - Scree plot: plot eigenvalues, look for "elbow"
+ *   - Cumulative variance: keep PCs explaining 80-90% variance
+ *   - Kaiser criterion: keep PCs with eigenvalue > mean eigenvalue
+ *   - Cross-validation: based on downstream task performance
+ * 
+ * Robustness levels:
+ *   - level=0: Standard PCA (covariance matrix)
+ *   - level=2: Robust PCA (comedian matrix) for outlier-prone data
+ *   - level=1,-1: Intermediate robustness options
+ * 
+ * See also: stb_tsne() and stb_umap() for nonlinear dimensionality reduction
+ * 
+ * Reference: Jolliffe, I. T. (2002). Principal Component Analysis (2nd ed.).
  */
 STB_EXTERN void stb_pca(double **x, int n, int p, int **nx, double *weights, int m, int level, double **eret, double ***vret, double ***rret);
 
-/* Arrange the N elements of data in random order. */
-STB_EXTERN void stb_shuffle(void *data, size_t n, size_t size, uint64_t *seed);
-
-/* returns a with n non-repeating random integers in [0,high). This 
- * is useful when n is small, but the range of numbers is big. Otherwise
- * it might be best to use stb_shuffle
- */
-STB_EXTERN int *stb_unique_random(int n, int high, uint64_t *seed);
-
-/* stb_neugas, a data neural gas clustering algorithm
- * See: www.demogng.de/JavaPaper/node16.html
- *
- * x[n][p] = Data Matrix
- * n       = Number of objects
- * p       = Measurements per object
- * k       = Number of clusters
- * c[k][p] = Cluster centers
- * z[n]    = What cluster a point is in (optional)
- * wss[k]  = The within-cluster sum of square of each cluster (optional only possible in combination with z!)
- *
- * Note: Neural gas was developed with a focus on learning a representation of the data space, rather than partitioning a data set
+/* Neural Gas clustering
+ * 
+ * Purpose: Learns a topological representation of data distribution
+ *          Emphasizes learning structure rather than hard partitioning
+ * 
+ * Algorithm: Neural Gas (Martinetz & Schulten, 1991)
+ *   - Competitive learning with adaptive neighborhoods
+ *   - Updates multiple cluster centers per iteration
+ *   - Strength of update depends on rank distance to data point
+ *   - Gradually reduces neighborhood size (λ) and learning rate (ε)
+ * 
+ * Method:
+ *   1. Initialize k cluster centers randomly or systematically
+ *   2. For each data point:
+ *      - Compute distance to all centers
+ *      - Rank centers by distance (0 = nearest)
+ *      - Update all centers with strength proportional to exp(-rank/λ)
+ *   3. Decay λ (neighborhood) and ε (learning rate) over time
+ *   4. Repeat until convergence
+ * 
+ * Inputs:
+ *   x - data matrix (n × p), n objects with p measurements each
+ *   n - number of data points
+ *   p - dimensionality of each point
+ *   k - number of cluster centers to learn
+ * 
+ * Outputs:
+ *   cret   - learned cluster centers (k × p), must be freed by caller
+ *   zret   - cluster assignments (n × 1), optional, can be NULL
+ *   wssret - within-cluster sum of squares (k × 1), optional, requires zret
+ * 
+ * Differences from k-means:
+ *   - Topological learning: preserves neighborhood structure
+ *   - Soft assignments during training (multiple centers updated)
+ *   - Better at capturing manifold structure
+ *   - More robust to initialization
+ *   - Focuses on representation over partitioning
+ * 
+ * Applications:
+ *   - Vector quantization
+ *   - Topology-preserving dimensionality reduction
+ *   - Feature map learning (similar to SOM but unorganized)
+ *   - Data visualization
+ *   - Manifold learning
+ *   - Clustering with complex shapes
+ * 
+ * Advantages:
+ *   - Learns topological relationships
+ *   - More flexible than k-means (non-spherical clusters)
+ *   - Robust to initialization
+ *   - Captures data manifold structure
+ * 
+ * Disadvantages:
+ *   - Slower than k-means
+ *   - More parameters to tune (λ, ε, decay rates)
+ *   - Less interpretable than hard clustering
+ *   - Computationally expensive for large k
+ * 
+ * Example:
+ *   // Learn topology of gene expression space
+ *   double **expr = ...; // 500 genes × 20 samples
+ *   double **prototypes;
+ *   int *clusters;
+ *   
+ *   stb_neugas(expr, 500, 20, 10, &prototypes, &clusters, NULL);
+ *   
+ *   // prototypes[0..9] represent 10 characteristic expression patterns
+ *   // These preserve topological relationships in gene expression space
+ *   
+ *   free(prototypes);
+ *   free(clusters);
+ * 
+ * Use cases:
+ *   - When cluster shapes are non-spherical
+ *   - When topological structure matters
+ *   - Exploratory data analysis
+ *   - Initialization for other algorithms
+ * 
+ * Note: Developed for learning representations rather than hard partitioning
+ *       More computationally intensive than k-means
+ *       See: www.demogng.de/JavaPaper/node16.html
+ * 
+ * Reference: Martinetz, T., & Schulten, K. (1991). A "neural-gas" network
+ *            learns topologies. Artificial Neural Networks, 397-402.
  */
 STB_EXTERN void stb_neugas(double **x, int n, int p, int k, double ***cret, int **zret, double **wssret);
 
@@ -1209,8 +4050,98 @@ STB_EXTERN double stb_polygamma(int k, double x);
 // so iteration to solve 1/x = 1/trigamma is monotonically convergent
 STB_EXTERN double stb_trigamma_inverse(double x);
 
-/* Moment estimation of the parameters of a scaled F-distribution (the prior) 
- * The first degrees of freedom is given 
+/* Fit scaled F-distribution to variance estimates (empirical Bayes)
+ * 
+ * Purpose: Estimates hyperparameters for variance shrinkage in differential expression
+ *          Uses method of moments to fit inverse chi-square (scaled F) distribution
+ * 
+ * Statistical method: Empirical Bayes variance estimation (limma/DESeq2 approach)
+ * 
+ * Background: In genomics, gene-wise variance estimates are unreliable with few samples.
+ *             By assuming variances follow a scaled F-distribution (inverse chi-square),
+ *             we can "borrow information" across genes to improve estimates.
+ * 
+ * Model: σ²ᵢ ~ σ₀² × χ²_{d₀}/d₀ (scaled inverse chi-square)
+ *        Equivalently: (σ²ᵢ/σ₀²) × d₀ ~ χ²_{d₀}
+ * 
+ * Method:
+ *   - Fit scaled F-distribution to empirical variance distribution
+ *   - Use method of moments: match mean and variance of observed variances
+ *   - Provides prior variance (σ₀²) and prior degrees of freedom (d₀)
+ *   - These hyperparameters used for variance shrinkage
+ * 
+ * Inputs:
+ *   var  - array of gene-wise variance estimates (length = len)
+ *          From stb_meanvar_counts_to_common_scale()
+ *   len  - number of genes
+ *   df1  - degrees of freedom for each variance estimate (typically n_samples - 1)
+ * 
+ * Outputs:
+ *   pvar - prior variance (σ₀²), must be freed by caller
+ *   pdf2 - prior degrees of freedom (d₀), must be freed by caller
+ * 
+ * Usage in differential expression:
+ *   1. Normalize counts (stb_calc_geometric_scaling_factors, stb_meanvar_counts_to_common_scale)
+ *   2. Compute gene variances
+ *   3. Fit F-distribution to get hyperparameters (this function)
+ *   4. Use hyperparameters in moderated t-test (stb_moderated_ttest)
+ * 
+ * Applications:
+ *   - RNA-seq differential expression (DESeq2 approach)
+ *   - Microarray analysis (limma approach)
+ *   - Any scenario with many variance estimates and few samples
+ *   - Variance shrinkage for improved statistical power
+ * 
+ * Advantages:
+ *   - Borrows information across genes
+ *   - Stabilizes variance estimates
+ *   - Increases statistical power
+ *   - Reduces false positives from noisy variance estimates
+ * 
+ * Example (complete differential expression workflow):
+ *   // Step 1: Normalize
+ *   STB_MAT *counts = stb_matrix_from_file("counts.txt");
+ *   double *sf, *means, *vars;
+ *   stb_calc_geometric_scaling_factors(counts, &sf);
+ *   stb_meanvar_counts_to_common_scale(counts, sf, &means, &vars);
+ *   
+ *   // Step 2: Estimate hyperparameters
+ *   double pvar, pdf2;
+ *   int df = counts->columns - 1;  // n_samples - 1
+ *   stb_fit_f_dist(vars, counts->rows, df, &pvar, &pdf2);
+ *   
+ *   printf("Prior variance: %.4f\n", pvar);
+ *   printf("Prior df: %.4f\n", pdf2);
+ *   
+ *   // Step 3: Test each gene with moderated t-test
+ *   for (int g = 0; g < counts->rows; g++) {
+ *       double t, p;
+ *       stb_moderated_ttest(control_expr[g], n_control,
+ *                          treatment_expr[g], n_treatment,
+ *                          pvar, pdf2, &t, &p);
+ *       if (p < 0.05) {
+ *           printf("Gene %d: t=%.3f, p=%.2e (significant)\n", g, t, p);
+ *       }
+ *   }
+ *   
+ *   free(sf); free(means); free(vars);
+ * 
+ * Interpretation:
+ *   - pvar: typical variance across genes (prior belief)
+ *   - pdf2: strength of prior (higher = more shrinkage)
+ *   - High pdf2: variances are similar across genes → more shrinkage
+ *   - Low pdf2: variances are variable → less shrinkage
+ * 
+ * Note: Uses method of moments via trigamma functions
+ *       Hyperparameters represent the prior distribution of gene variances
+ *       Essential for empirical Bayes moderated t-tests
+ * 
+ * Reference: Smyth, G. K. (2004). Linear models and empirical bayes methods
+ *            for assessing differential expression in microarray experiments.
+ *            Statistical Applications in Genetics and Molecular Biology, 3(1).
+ * 
+ * See also: stb_moderated_ttest() which uses these hyperparameters
+ *           stb_meanvar_counts_to_common_scale() which provides variance estimates
  */
 STB_EXTERN void stb_fit_f_dist(double *var, int len, int df1, double *pvar, double *pdf2);
 
@@ -1227,50 +4158,168 @@ STB_EXTERN long double stb_log_gamma(double N);
 /* The normalized incomplete beta function. */
 STB_EXTERN long double stb_incbeta(double a, double b, double x);
 
-/* The function dbinom returns the value of the probability density function (pdf) 
- * of the binomial distribution given a certain random variable x, number of trials
- * (size) and probability of success on each trial (prob) 
+/* Binomial probability mass function (PMF)
+ * 
+ * Purpose: Calculates probability of exactly x successes in size trials
+ * 
+ * Distribution: Binomial distribution B(size, prob)
+ * PMF: P(X = x) = C(size,x) × prob^x × (1-prob)^(size-x)
+ * 
+ * Inputs:
+ *   x    - number of successes (0 ≤ x ≤ size)
+ *   size - number of independent trials (n)
+ *   prob - probability of success on each trial (0 ≤ prob ≤ 1)
+ * 
+ * Returns: Probability of observing exactly x successes
+ * 
+ * Applications: Discrete events with binary outcomes (success/failure)
+ *               Quality control, genetics (allele frequencies),
+ *               clinical trials (treatment success rates)
+ * 
+ * Note: Use normal approximation for large size (np > 5 and n(1-p) > 5)
  */
 STB_EXTERN double stb_pdf_binom(double x, double size, double prob);
 
-/* Returns the value of the Poisson probability density function. In other
- * words, the dpois function finds the probability that a certain number 
- * of successes (x) occur based on an average rate of success (lambda)
+/* Poisson probability mass function (PMF)
+ * 
+ * Purpose: Calculates probability of exactly x events in fixed interval
+ * 
+ * Distribution: Poisson distribution Pois(λ)
+ * PMF: P(X = x) = (λ^x × e^(-λ)) / x!
+ * 
+ * Inputs:
+ *   x      - number of events (non-negative integer)
+ *   lambda - average rate of events per interval (λ > 0)
+ * 
+ * Returns: Probability of observing exactly x events
+ * 
+ * Applications: Rare events with constant average rate
+ *               RNA-seq count data (before normalization)
+ *               Mutation counts, radioactive decay
+ *               Website hits, customer arrivals
+ * 
+ * Note: Approximates binomial when n large, p small, and np moderate
+ *       Mean = Variance = λ (equidispersion property)
  */
 STB_EXTERN double stb_pdf_pois(double x, double lambda);
 
-/* Returns the probability of obtaining x from a hypergeometric distribution 
- * with parameters N, n, k 
- * [[https://stattrek.com/probability-distributions/hypergeometric.aspx]]
- * Suppose we randomly select 5 cards without replacement from an ordinary deck of 
- * playing cards. What is the probability of getting exactly 2 red cards (i.e., hearts or diamonds)?
- *
- * N = 52; since there are 52 cards in a deck.
- * k = 26; since there are 26 red cards in a deck.
- * n = 5; since we randomly select 5 cards from the deck.
- * x = 2; since 2 of the cards we select are red.
+/* Hypergeometric probability mass function (PMF)
+ * 
+ * Purpose: Calculates probability of x successes in sample drawn without replacement
+ * 
+ * Distribution: Hypergeometric distribution HyperGeo(N, k, n)
+ * PMF: P(X = x) = C(k,x) × C(N-k, n-x) / C(N, n)
+ * 
+ * Inputs:
+ *   x - number of successes observed in sample
+ *   N - population size (total number of items)
+ *   n - sample size (number of items drawn)
+ *   k - number of success states in population
+ * 
+ * Returns: Probability of observing exactly x successes
+ * 
+ * Applications: Sampling without replacement from finite populations
+ *               Gene set enrichment analysis (GO, KEGG pathways)
+ *               Fisher's exact test for 2×2 contingency tables
+ *               Quality control (defective items in batch)
+ * 
+ * Example: Drawing 5 cards from deck (N=52), probability of 2 red cards (k=26, x=2)
+ * 
+ * Note: Approaches binomial when N >> n (sampling with replacement approximation)
+ * 
+ * Reference: https://stattrek.com/probability-distributions/hypergeometric.aspx
  */      
 STB_EXTERN double stb_pdf_hypgeo(int x, int N, int n, int k);
 
-// Hash function: Murmer One At A Time 32 bit
+/* MurmurHash 32-bit hash function
+ * 
+ * Purpose: Fast non-cryptographic hash function for strings
+ * 
+ * Algorithm: MurmurHash variant (One-At-A-Time style)
+ * 
+ * Inputs:
+ *   key - null-terminated string to hash
+ * 
+ * Returns: 32-bit hash value
+ * 
+ * Applications: Hash tables, data structures, checksums
+ * 
+ * Note: Not cryptographically secure; use for hash tables, not security
+ */
 STB_EXTERN inline uint32_t stb_murmer32(const char *key);
 
-// Hash function: Murmer One At A Time 64 bit
+/* MurmurHash 64-bit hash function
+ * 
+ * Purpose: Fast non-cryptographic hash function for strings
+ * 
+ * Algorithm: MurmurHash variant (One-At-A-Time style)
+ * 
+ * Inputs:
+ *   key - null-terminated string to hash
+ * 
+ * Returns: 64-bit hash value
+ * 
+ * Applications: Hash tables for large datasets, distributed systems
+ * 
+ * Note: Better avalanche properties and lower collision rate than 32-bit version
+ */
 STB_EXTERN inline uint64_t stb_murmer64(const char *key);
 
-/* Calculate the Shannon Index (a.k.a. Shannon's diversity index, the Shannon–Wiener index, 
- * the Shannon–Weaver index, the Shannon entropy). Pilou evenness compares the actual diversity
- * value (such as the Shannon Index, H′) to the maximum possible diversity value (when all species
- * are equally common, Hmax=ln S where S is the total number of species). 
- * The higher the Shannon index, the more diverse the species are in the habitat.
- * Evenness gives you a value between 0 and 1. The lower the evenness, the higher the diversity.
+/* Shannon diversity index and Pielou's evenness
+ * 
+ * Purpose: Measures species diversity accounting for richness and evenness
+ * 
+ * Formula: H' = -Σ(pi × ln(pi)) where pi = ni/N
+ *          Evenness J' = H' / ln(S) where S = number of species
+ * 
+ * Inputs:
+ *   data - array of species counts/abundances
+ *   n    - number of species
+ * 
+ * Outputs:
+ *   index    - Shannon diversity index H' (higher = more diverse)
+ *   evenness - Pielou's evenness J' (0-1, lower = higher diversity)
+ * 
+ * Interpretation:
+ *   H' typically ranges 1.5-3.5 (higher in tropical regions)
+ *   H' = 0 when only one species present
+ *   J' near 1: species equally abundant (even)
+ *   J' near 0: one species dominates (uneven)
+ * 
+ * Applications: Ecology (alpha diversity)
+ *               Microbiome analysis (species richness in samples)
+ *               Biodiversity assessment, conservation biology
+ * 
+ * Note: Also known as Shannon-Wiener or Shannon-Weaver index
  */
 STB_EXTERN void stb_shannon(double *data, size_t n, double *index, double *evenness);
 
-/* Simpson's Diversity Index is a measure of diversity which takes into account the number of species
- * present, as well as the relative abundance of each species. As species richness and evenness 
- * increase, so diversity increases. The value ranges between 0 and 1. One represents infinite diversity
- * and 0, no diversity.
+/* Simpson's diversity index
+ * 
+ * Purpose: Measures diversity with emphasis on dominant species
+ * 
+ * Formula: D = 1 - Σ[ni(ni-1)] / [N(N-1)]
+ *          where ni = count of species i, N = total count
+ * 
+ * Inputs:
+ *   data  - array of species counts/abundances
+ *   n     - number of species
+ * 
+ * Outputs:
+ *   index - Simpson's diversity index D (0-1 range)
+ * 
+ * Interpretation:
+ *   D = 1: Infinite diversity (all species equally abundant)
+ *   D = 0: No diversity (one species dominates)
+ *   Higher values indicate greater diversity
+ * 
+ * Applications: Ecology (alpha diversity)
+ *               Measures probability that two randomly selected
+ *               individuals belong to different species
+ *               More weight to abundant species than Shannon index
+ * 
+ * Note: Less sensitive to species richness than Shannon index
+ *       More affected by changes in dominant species
  */
 STB_EXTERN void stb_simpson(double *data, size_t n, double *index);
 
@@ -1282,9 +4331,38 @@ STB_EXTERN void stb_simpson(double *data, size_t n, double *index);
  */
 STB_EXTERN double stb_jaccard(char **setA, size_t n_setA, char **setB, size_t n_setB);
 
-/* The Bray–Curtis dissimilarity is a measure used to quantify the compositional dissimilarity between two 
- * different sites, based on counts (c_setA and c_setB) at each site. The Bray–Curtis dissimilarity is bounded between 0 and 1, 
- * where 0 means the two sites have the same composition and 1 means the two sites do not share any species.
+/* Bray-Curtis dissimilarity
+ * 
+ * Purpose: Measures compositional dissimilarity between communities with abundances
+ * 
+ * Formula: BC = 1 - (2×Σmin(ni,A, ni,B)) / (Σni,A + Σni,B)
+ *          where ni = count of species i at site
+ * 
+ * Inputs:
+ *   setA   - array of species names in site A
+ *   c_setA - array of counts/abundances for each species in A
+ *   n_setA - number of species in site A
+ *   setB   - array of species names in site B
+ *   c_setB - array of counts/abundances for each species in B
+ *   n_setB - number of species in site B
+ * 
+ * Returns: Bray-Curtis dissimilarity (0-1 range)
+ * 
+ * Interpretation:
+ *   BC = 0: Sites have identical composition
+ *   BC = 1: Sites share no species
+ *   Lower values indicate greater similarity
+ * 
+ * Applications: Beta diversity with abundance data
+ *               Community ecology (comparing sites)
+ *               Microbiome analysis (sample dissimilarity)
+ *               Preferred over Euclidean distance for count data
+ * 
+ * Advantages: Accounts for abundance, not just presence/absence
+ *             Robust to differences in sampling effort
+ *             Bounded between 0 and 1
+ * 
+ * Note: Also known as Sørensen dissimilarity when using quantitative data
  */
 STB_EXTERN double stb_bray_curtis(char **setA, double *c_setA, size_t n_setA, char **setB, double *c_setB, size_t n_setB);
 
@@ -1305,49 +4383,293 @@ typedef struct {
     int count;
 } stb_kdtree;
 
-/* Create a KD-tree from data points
- * data[n][dim] = Data matrix
- * n            = Number of points
- * dim          = Dimensionality of points
+/* K-D Tree for efficient nearest neighbor search
+ * 
+ * Purpose: Space-partitioning data structure for efficient k-nearest neighbor queries
+ *          in multidimensional space
+ * 
+ * Structure: Binary tree where each node represents a hyperplane that partitions
+ *            space along one dimension (cycling through dimensions at each level)
+ * 
+ * Complexity:
+ *   - Build: O(n log² n) average case
+ *   - Query: O(log n) average case, O(n) worst case
+ *   - Space: O(n)
+ * 
+ * Applications:
+ *   - k-nearest neighbor search for t-SNE and UMAP
+ *   - Clustering algorithms
+ *   - Similarity search
+ *   - Outlier detection
+ *   - Classification (k-NN classifier)
+ * 
+ * Note: Performance degrades in very high dimensions (curse of dimensionality)
+ *       For d > 20-30, approximate methods may be faster
+ */
+
+/* Build a KD-tree from data points
+ * 
+ * Purpose: Constructs a K-D tree for efficient nearest neighbor queries
+ * 
+ * Inputs:
+ *   data - data matrix (n × dim), points to index
+ *   n    - number of data points
+ *   dim  - dimensionality of each point
+ * 
+ * Returns: Pointer to stb_kdtree structure
+ *          Caller must free using stb_kdtree_destroy()
+ * 
+ * Example:
+ *   double **data = ...; // 1000 points in 50 dimensions
+ *   stb_kdtree *tree = stb_kdtree_create(data, 1000, 50);
+ *   // ... perform queries ...
+ *   stb_kdtree_destroy(tree);
+ * 
+ * Note: Tree holds pointers to original data - do not free data until tree is destroyed
  */
 STB_EXTERN stb_kdtree *stb_kdtree_create(double **data, int n, int dim);
 
-/* Find k nearest neighbors
- * tree      = KD-tree structure
- * point     = Query point
- * k         = Number of neighbors to find
- * indices   = Output array of neighbor indices
- * distances = Output array of distances
+/* Find k nearest neighbors using KD-tree
+ * 
+ * Purpose: Efficiently finds k closest points to a query point
+ * 
+ * Inputs:
+ *   tree  - KD-tree structure (from stb_kdtree_create)
+ *   point - query point (length = dim)
+ *   k     - number of neighbors to find
+ * 
+ * Outputs:
+ *   indices   - array of k neighbor indices (must be pre-allocated, length = k)
+ *   distances - array of k squared distances (must be pre-allocated, length = k)
+ * 
+ * Note: Returns squared Euclidean distances (not actual distances)
+ *       Results are sorted by distance (closest first)
+ *       If fewer than k points exist, remaining entries will be -1
+ * 
+ * Example:
+ *   stb_kdtree *tree = stb_kdtree_create(data, n, dim);
+ *   double query[50] = {...};
+ *   int neighbors[10];
+ *   double distances[10];
+ *   
+ *   stb_kdtree_knn(tree, query, 10, neighbors, distances);
+ *   
+ *   printf("Nearest neighbor: index %d, distance %.4f\n",
+ *          neighbors[0], sqrt(distances[0]));
+ *   
+ *   stb_kdtree_destroy(tree);
  */
 STB_EXTERN void stb_kdtree_knn(stb_kdtree *tree, double *point, int k, int *indices, double *distances);
 
-/* Free KD-tree memory */
+/* Destroy KD-tree and free memory
+ * 
+ * Purpose: Deallocates all memory associated with a KD-tree
+ * 
+ * Inputs:
+ *   tree - pointer to KD-tree structure
+ * 
+ * Note: Safe to call on NULL pointer
+ *       Does NOT free the original data array passed to stb_kdtree_create()
+ */
 STB_EXTERN void stb_kdtree_destroy(stb_kdtree *tree);
 
-/* t-SNE: t-Distributed Stochastic Neighbor Embedding
- * x[n][p]      = Data matrix
- * n            = Number of samples
- * p            = Number of features
- * n_components = Number of dimensions in output (typically 2 or 3)
- * perplexity   = Perplexity parameter (typical: 5-50, default: 30)
- * max_iter     = Maximum iterations (default: 1000)
- * learning_rate= Learning rate (default: 200.0)
- * result[n][n_components] = Output embedded coordinates
- *
- * Note: Uses Barnes-Hut approximation for O(n log n) complexity
+/* t-Distributed Stochastic Neighbor Embedding (t-SNE)
+ * 
+ * Purpose: Nonlinear dimensionality reduction for visualization
+ *          Preserves local neighborhood structure better than PCA
+ * 
+ * Algorithm: t-SNE (van der Maaten & Hinton, 2008)
+ *   1. Compute pairwise similarities in high-dimensional space using Gaussian
+ *   2. Define similar affinities in low-dimensional space using Student's t-distribution
+ *   3. Minimize KL divergence between high-D and low-D distributions via gradient descent
+ *   4. Uses Barnes-Hut approximation for O(n log n) complexity
+ * 
+ * Mathematical: Minimizes KL(P||Q) where
+ *   - P[i,j]: similarity between points i,j in original space
+ *   - Q[i,j]: similarity between points i,j in embedded space
+ * 
+ * Inputs:
+ *   x             - data matrix (n × p), high-dimensional data
+ *   n             - number of samples
+ *   p             - number of features (original dimensionality)
+ *   n_components  - output dimensions (typically 2 or 3 for visualization)
+ *   perplexity    - balances local vs global structure (typical: 5-50, default: 30)
+ *                   Rough measure of number of neighbors to preserve
+ *   max_iter      - maximum gradient descent iterations (default: 1000)
+ *   learning_rate - step size for gradient descent (default: 200.0)
+ * 
+ * Outputs:
+ *   result - embedded coordinates (n × n_components), must be freed by caller
+ * 
+ * Parameter tuning:
+ *   - perplexity: higher = more global structure, lower = more local clusters
+ *     - Use 5-50 for most datasets
+ *     - Rule of thumb: perplexity should be < n_samples / 3
+ *   - max_iter: 1000-5000 typically sufficient
+ *   - learning_rate: 10-1000, depends on dataset size
+ * 
+ * Applications:
+ *   - Visualizing high-dimensional data (especially clusters)
+ *   - Exploratory data analysis
+ *   - Single-cell RNA-seq visualization
+ *   - Image embedding visualization
+ *   - Discovering hidden patterns and outliers
+ * 
+ * Bioinformatics applications:
+ *   - scRNA-seq: visualize cell types and states
+ *   - Genomics: visualize population structure
+ *   - Proteomics: visualize protein similarities
+ *   - Drug discovery: visualize chemical space
+ * 
+ * Advantages:
+ *   - Excellent for visualizing clusters
+ *   - Preserves local neighborhood structure
+ *   - Reveals complex nonlinear relationships
+ *   - Effective for many data types
+ * 
+ * Limitations:
+ *   - Computationally expensive (even with Barnes-Hut)
+ *   - Stochastic (different runs give different results)
+ *   - Global structure not always preserved
+ *   - Distances in embedded space not meaningful
+ *   - Sensitive to hyperparameters
+ *   - Not suitable for new data projection (no explicit mapping)
+ * 
+ * Example:
+ *   // Visualize gene expression in 2D
+ *   double **expr = ...; // 5000 cells × 2000 genes
+ *   double ***embedding;
+ *   
+ *   stb_tsne(expr, 5000, 2000, 2, 30.0, 1000, 200.0, &embedding);
+ *   
+ *   // Plot cells in 2D
+ *   for (int i = 0; i < 5000; i++) {
+ *       plot_point(embedding[i][0], embedding[i][1], cell_type[i]);
+ *   }
+ *   
+ *   free(embedding);
+ * 
+ * Interpretation:
+ *   - Nearby points in t-SNE plot are similar in original space
+ *   - Cluster sizes not meaningful (t-SNE expands dense clusters)
+ *   - Distances not interpretable quantitatively
+ *   - Multiple runs may give different but equally valid layouts
+ * 
+ * Note: Uses Barnes-Hut approximation for O(n log n) complexity instead of O(n²)
+ *       For very large datasets (n > 10,000), consider using UMAP instead
+ * 
+ * Reference: van der Maaten, L., & Hinton, G. (2008). Visualizing data using t-SNE.
+ *            Journal of Machine Learning Research, 9, 2579-2605.
+ * 
+ * See also: stb_umap() for faster alternative with better global structure preservation
  */
 STB_EXTERN void stb_tsne(double **x, int n, int p, int n_components, double perplexity, 
                          int max_iter, double learning_rate, double ***result);
 
-/* UMAP: Uniform Manifold Approximation and Projection
- * x[n][p]      = Data matrix
- * n            = Number of samples
- * p            = Number of features
- * n_components = Number of dimensions in output (typically 2 or 3)
- * n_neighbors  = Number of neighbors (typical: 5-50, default: 15)
- * min_dist     = Minimum distance (default: 0.1)
- * n_epochs     = Number of training epochs (default: 200)
- * result[n][n_components] = Output embedded coordinates
+/* Uniform Manifold Approximation and Projection (UMAP)
+ * 
+ * Purpose: Fast nonlinear dimensionality reduction for visualization and general use
+ *          Preserves both local and global structure better than t-SNE
+ * 
+ * Algorithm: UMAP (McInnes, Healy & Melville, 2018)
+ *   1. Construct fuzzy topological representation of high-dimensional data
+ *   2. Find low-dimensional representation with similar topology
+ *   3. Optimize layout using stochastic gradient descent
+ *   4. Uses k-nearest neighbor graph for efficiency
+ * 
+ * Mathematical: Based on Riemannian geometry and algebraic topology
+ *               Constructs fuzzy simplicial set and optimizes cross-entropy
+ * 
+ * Inputs:
+ *   x            - data matrix (n × p), high-dimensional data
+ *   n            - number of samples
+ *   p            - number of features (original dimensionality)
+ *   n_components - output dimensions (typically 2 or 3 for visualization)
+ *   n_neighbors  - number of neighbors to consider (typical: 5-50, default: 15)
+ *                  Balances local vs global structure
+ *   min_dist     - minimum distance between points in embedding (default: 0.1)
+ *                  Smaller = more clustered, larger = more spread out
+ *   n_epochs     - number of training epochs (default: 200)
+ * 
+ * Outputs:
+ *   result - embedded coordinates (n × n_components), must be freed by caller
+ * 
+ * Parameter tuning:
+ *   - n_neighbors: higher = more global, lower = more local
+ *     - Use 5-15 for local structure, 30-100 for global
+ *   - min_dist: 0.0-0.99
+ *     - 0.0 = tightly packed clusters
+ *     - 0.1 = moderate (default, good balance)
+ *     - 0.5+ = more spread out
+ *   - n_epochs: 200-500 typically sufficient
+ * 
+ * Applications:
+ *   - Visualizing high-dimensional data
+ *   - General-purpose dimensionality reduction (not just visualization)
+ *   - Preprocessing for machine learning
+ *   - Single-cell RNA-seq analysis
+ *   - Any application requiring fast nonlinear embedding
+ * 
+ * Bioinformatics applications:
+ *   - scRNA-seq: cell type visualization and clustering
+ *   - Genomics: population structure visualization
+ *   - Spatial transcriptomics: tissue organization
+ *   - Multi-omics integration
+ * 
+ * Advantages over t-SNE:
+ *   - Much faster (especially for large datasets)
+ *   - Better preserves global structure
+ *   - More stable across runs (less stochastic)
+ *   - Can embed new points (with additional code)
+ *   - Scales better to large datasets
+ *   - Distances more meaningful
+ *   - Works well in higher dimensions (not just 2D)
+ * 
+ * Advantages over PCA:
+ *   - Captures nonlinear relationships
+ *   - Better separation of clusters
+ *   - More flexible structure preservation
+ * 
+ * Limitations:
+ *   - More complex algorithm (harder to interpret)
+ *   - Hyperparameters affect results
+ *   - Stochastic (some variation between runs)
+ *   - Less mature than t-SNE (but rapidly improving)
+ * 
+ * Example:
+ *   // Visualize single-cell RNA-seq data
+ *   double **expression = ...; // 10000 cells × 2000 genes
+ *   double ***embedding;
+ *   
+ *   // Use UMAP for fast, high-quality embedding
+ *   stb_umap(expression, 10000, 2000, 2, 15, 0.1, 200, &embedding);
+ *   
+ *   // Plot cells colored by type
+ *   for (int i = 0; i < 10000; i++) {
+ *       plot_point(embedding[i][0], embedding[i][1], cell_type[i]);
+ *   }
+ *   
+ *   free(embedding);
+ * 
+ * Comparison with t-SNE:
+ *   - UMAP is typically 5-10x faster
+ *   - UMAP better preserves global structure
+ *   - UMAP more deterministic (less run-to-run variation)
+ *   - t-SNE may give tighter clusters
+ *   - Both excellent for visualization
+ * 
+ * Interpretation:
+ *   - Nearby points are similar in original space
+ *   - Distances more meaningful than t-SNE (but still not exact)
+ *   - Cluster sizes more interpretable
+ *   - Global structure generally preserved
+ * 
+ * Reference: McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform
+ *            Manifold Approximation and Projection for Dimension Reduction.
+ *            arXiv:1802.03426.
+ * 
+ * See also: stb_tsne() for alternative visualization method
+ *           stb_pca() for linear dimensionality reduction
  */
 STB_EXTERN void stb_umap(double **x, int n, int p, int n_components, int n_neighbors,
                          double min_dist, int n_epochs, double ***result);
